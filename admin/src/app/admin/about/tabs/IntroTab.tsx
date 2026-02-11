@@ -3,7 +3,73 @@ import { useEffect, useRef, useState } from 'react'
 import ImageUpload from '@/components/ImageUpload'
 import Modal from '@/components/Modal'
 import clsx from 'clsx'
+import { axiosInstance } from '@/lib/axios'
 
+// Backend API Response Types
+interface APITranslation {
+  id: number
+  language: number
+  language_code: string
+  language_name: string
+  title?: string
+  content?: string
+  color?: string
+  fontcolor?: string
+  fontsize?: string
+  fontweight?: string
+  fontfamily?: string
+}
+
+interface APIBlock {
+  id: number
+  index: number
+  visible: boolean
+  translations: APITranslation[]
+}
+
+interface APISection {
+  id: number
+  index: number
+  visible: boolean
+  created: string | null
+  updated: string | null
+  translations: APITranslation[]
+  blocks: APIBlock[]
+}
+
+interface APIMedia {
+  id: number
+  type: string
+  url: string
+  // Add other media fields as needed
+}
+
+interface APIAboutPage {
+  id: number
+  key: string
+  active: boolean
+  created: string | null
+  updated: string | null
+  sections: APISection[]
+  media: APIMedia[]
+}
+
+interface TimelineEvent {
+  year: string
+  title_mn: string
+  title_en: string
+  short_mn: string
+  short_en: string
+  desc_mn: string
+  desc_en: string
+  year_color: string
+  title_color: string
+  short_color: string
+  desc_color: string
+  visible: boolean
+}
+
+// Frontend TabContent Type
 interface TabContent {
   title_mn: string
   title_en: string
@@ -39,8 +105,7 @@ interface TabContent {
   citizen_p1_en: string
   citizen_p2_mn: string
   citizen_p2_en: string
-  // Font Styling - 12 хэсэг тус бүрийнх
-  // Origin Story (4 хэсэг)
+  // Font Styling - 12 хэсэг
   origin_title_color: string
   origin_title_size: number
   origin_title_weight: string
@@ -57,7 +122,6 @@ interface TabContent {
   origin_p3_size: number
   origin_p3_weight: string
   origin_p3_family: string
-  // What We Do (2 хэсэг)
   whatWeDo_title_color: string
   whatWeDo_title_size: number
   whatWeDo_title_weight: string
@@ -66,7 +130,6 @@ interface TabContent {
   whatWeDo_content_size: number
   whatWeDo_content_weight: string
   whatWeDo_content_family: string
-  // SME (3 хэсэг)
   sme_title_color: string
   sme_title_size: number
   sme_title_weight: string
@@ -79,7 +142,6 @@ interface TabContent {
   sme_p2_size: number
   sme_p2_weight: string
   sme_p2_family: string
-  // Citizen (3 хэсэг)
   citizen_title_color: string
   citizen_title_size: number
   citizen_title_weight: string
@@ -92,7 +154,7 @@ interface TabContent {
   citizen_p2_size: number
   citizen_p2_weight: string
   citizen_p2_family: string
-  // Visibility toggles for 12 sections
+  // Visibility toggles
   origin_title_visible: boolean
   origin_p1_visible: boolean
   origin_p2_visible: boolean
@@ -106,20 +168,7 @@ interface TabContent {
   citizen_p1_visible: boolean
   citizen_p2_visible: boolean
   // Timeline Events
-  timeline_events: Array<{
-    year: string
-    title_mn: string
-    title_en: string
-    short_mn: string
-    short_en: string
-    desc_mn: string
-    desc_en: string
-    year_color: string
-    title_color: string
-    short_color: string
-    desc_color: string
-    visible: boolean
-  }>
+  timeline_events: TimelineEvent[]
 }
 
 interface IntroTabProps {
@@ -127,7 +176,33 @@ interface IntroTabProps {
   loading?: boolean
 }
 
-// Reusable IntersectionObserver hook for animations
+// Helper functions
+const getTranslation = (translations: APITranslation[], langCode: string, field: 'title' | 'content'): string => {
+  const trans = translations.find(t => t.language_code === langCode)
+  return trans?.[field] || ''
+}
+
+const getColor = (translations: APITranslation[], langCode: string): string => {
+  const trans = translations.find(t => t.language_code === langCode)
+  return trans?.color || trans?.fontcolor || '#000000'
+}
+
+const getFontSize = (translations: APITranslation[], langCode: string): number => {
+  const trans = translations.find(t => t.language_code === langCode)
+  return parseInt(trans?.fontsize || '14')
+}
+
+const getFontWeight = (translations: APITranslation[], langCode: string): string => {
+  const trans = translations.find(t => t.language_code === langCode)
+  return trans?.fontweight || '400'
+}
+
+const getFontFamily = (translations: APITranslation[], langCode: string): string => {
+  const trans = translations.find(t => t.language_code === langCode)
+  return trans?.fontfamily || 'inherit'
+}
+
+// Reusable IntersectionObserver hook
 function useInViewAnimation() {
   const ref = useRef<HTMLDivElement | null>(null)
   const [visible, setVisible] = useState(false)
@@ -135,12 +210,8 @@ function useInViewAnimation() {
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => setVisible(entry.isIntersecting),
-      {
-        threshold: 0.35,
-        rootMargin: '0px 0px -80px 0px',
-      }
+      { threshold: 0.35, rootMargin: '0px 0px -80px 0px' }
     )
-
     if (ref.current) observer.observe(ref.current)
     return () => observer.disconnect()
   }, [])
@@ -148,258 +219,102 @@ function useInViewAnimation() {
   return { ref, visible }
 }
 
-const historyEvents = [
-  { 
-    year: '2008', 
-    title_mn: 'АВТОМАШИН БАРЬЦААТ ЗЭЭЛ',
-    title_en: 'CAR COLLATERAL LOAN',
-    short_mn: 'Монголд анх удаа банкны шалгуурт тэнцэхгүй иргэдэд зориулсан шийдэл болох автомашин барьцаалсан зээлийн үйлчилгээг нэвтрүүлсэн.',
-    short_en: 'Introduced car collateral loan service for citizens who do not meet bank criteria.',
-    desc_mn: 'Энэхүү барьцаагүй зээлийн үйлчилгээг 2008 оны 8-р сарын 8-ны өдрөөс анх олгож эхэлсэн бөгөөд 2009 онд уг зээлийн үйлчилгээ маань хүчин төгөлдөр болж, харилцагчдадаа зээлийн үйлчилгээ олгож эхэлсэн. Анх автомашин барьцаалан банкны шалгуурт тэнцэхгүй байгаа иргэдийн нийгмийн чиг хандлагыг өөрчлөхөд хувь нэмэр оруулах үүднээс "Автомашин барьцаагүй зээл"-ийг нэвтрүүлэн хэрэглэгчдээ татаж эхэлсэн.',
-    desc_en: 'Started offering this loan service on August 8, 2008, and in 2009 the service became effective, providing loan services to customers.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2009', 
-    title_mn: 'АВТОМАШИН УНАХ НӨХЦӨЛТ ЗЭЭЛ',
-    title_en: 'CAR DRIVING CONDITION LOAN',
-    short_mn: 'Автомашиныг барьцаалахдаа унах нөхцөлтэй зээлийг санал болгосон анхны санхүүгийн байгууллага болсон.',
-    short_en: 'Became the first financial institution to offer loans with car driving conditions.',
-    desc_mn: 'Бүтээгдэхүүнээ иргэдэд санал болгохын хажуугаар өрсөлдөгчид улам нэмэгдсээр зах зээлээ алдаж эхэлсэн энэ үед удирдах зөвлөл маш том шийдвэрийг гаргаж ажиллахаар болсон. Энэ нь та бидний одоогийн сайн мэдэх автомашиныг барьцаалахдаа унах нөхцөлтэй зээлийг санал болгох эрсдэлтэй шийдвэрийг гаргасан анхны санхүүгийн байгууллага. Энэ үеэс эхлэн зах зээл дээр байр сууриа бат барьж иргэдийнхээ санхүүгийн тулгамдсан хэрэгцээг шийдвэрлэж банкнаас татгалзаад байгаа иргэдийг улам их дэмжин ажиллаж байсан. Мөн түүнчлэн шинэ бүтээгдэхүүн болох 9911-тэй дугаарт анхны зээлийг олгож эхэлсэн.',
-    desc_en: 'Made a major decision to offer loans with car driving conditions, becoming the first financial institution to do so.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2011', 
-    title_mn: 'ХӨРӨНГӨ ОРУУЛАЛТ ТАТСАН',
-    title_en: 'ATTRACTED INVESTMENT',
-    short_mn: 'Австрали улсаас 1 сая долларын хөрөнгө оруулалтыг татаж, зах зээлийн дундаж хүүг бууруулах боломжийг бүрдүүлсэн.',
-    short_en: 'Attracted $1 million investment from Australia, enabling reduction of market average interest rates.',
-    desc_mn: 'Санхүүгийн хүртээмжийг нэмэгдүүлэхийн хэрээр олон улстай түнш байгууллага тогтоон Австрали улсаас 1 сая долларын хөрөнгө оруулалтыг оруулж эхэлсэн. Энэ нь бидний хувьд маш том гарц маш том өөрчлөлтийг дахин авчирсан. Зах зээл дээр байгаа дундаж хүүг эргэлтийн хөрөнгө оруулалтаар буулгаж ажиллагсад болон зээлийн иргэдийнхээ төлөлт болоод цалингийн асуудал дээр анхаарч ажилласан.',
-    desc_en: 'Established partnerships with international organizations and started receiving $1 million investment from Australia.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2012', 
-    title_mn: 'САЛБАР НЭГЖИЙН ӨРГӨЖИЛТ',
-    title_en: 'BRANCH EXPANSION',
-    short_mn: 'Орон нутагт 10 салбар, нийслэлд 8 салбар, 150 гаруй ажиллагсадтайгаар үйл ажиллагаагаа өргөжүүлэв.',
-    short_en: 'Expanded operations with 10 branches in rural areas, 8 in the capital, and over 150 employees.',
-    desc_mn: '2009-2012 он бидний хувьд санхүүгийн хүртээмжийг иргэдэд илүү ойртуулахын төлөө хичээн, орон нутагт 10 салбар, нийслэлд 8 салбар, 150 гаруй ажиллагсадтайгаар үйл ажиллагаагаа явуулж, иргэдийн тулгамдаж буй санхүүгийн асуудлыг хурдан шийдвэрлэж ажилласан он жил байсан юм.',
-    desc_en: 'From 2009-2012, worked to bring financial accessibility closer to citizens.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2015', 
-    title_mn: 'ҮЙЛ АЖИЛЛАГААГАА ӨРГӨТГӨСӨН',
-    title_en: 'EXPANDED OPERATIONS',
-    short_mn: 'ББСБ-ын статустай болж, зээлийн хүү болон шимтгэлийг бууруулан, шимтгэлийг 0% болгож харилцагчдадаа бэлэг барьсан.',
-    short_en: 'Obtained NBFI status, reduced interest rates and fees, making fees 0% as a gift to customers.',
-    desc_mn: 'Зээлийн бүтээгдэхүүнийг нэмэгдэхийн хирээр иргэдийнхээ зээлжих боломжийг харилцагчдынхаа амьдралын өөрчлөлтөд өөрчлөлт оруулахын тулд Санхүүгийн зохицуулах хороотой хамтран ажилласны үр дүнд Монголын банк бус санхүүгийн байгууллагын нэр томъеог аван иргэдийнхээ зээлийн бүтээгдэхүүн дээр хүүний болоод шимтгэлийн хувьд асар том өөрчлөлтийг оруулж харилцагчдадаа бэлэг барьсан. Шимтгэлийг 0% болгож хүүг банк бусийн журмын дагуу өөрчлөлт оруулж ажилласны хэрээр зээл авах хугацаа дагаад уртассан сайхан мэдээг харилцагчид таатай хүлээж аван итгэлцлийн холбоо улам батжиж бид 30,000 гаруй итгэл нь дүүрсэн харилцагчидтай болж чадсан.',
-    desc_en: 'Worked with the Financial Regulatory Commission to obtain NBFI status and made significant changes to loan products.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2017', 
-    title_mn: 'NISSAN LEAF ЦАХИЛГААН МАШИН',
-    title_en: 'NISSAN LEAF ELECTRIC CAR',
-    short_mn: 'Эко зээлийг нэвтрүүлж, Ниссан маркийн цахилгаан автомашиныг Монголын нөхцөлд туршин нэвтрүүлсэн.',
-    short_en: 'Introduced eco loans and tested Nissan electric cars in Mongolian conditions.',
-    desc_mn: 'Ниссан маркийн 4 цахилгаан автомашиныг Монголын уур амьсгалд тохиромжтой эсэхийг нэг жилийн хугацаанд туршин, олон нийтэд таниулсан. Мөн эко зээлийг нэвтрүүлсэн анхны санхүүгийн байгууллага болсон юм.',
-    desc_en: 'Tested 4 Nissan electric cars for one year to see if they are suitable for Mongolian climate.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2018', 
-    title_mn: 'СОНО ФИНТЕК ТӨСӨЛ',
-    title_en: 'SONO FINTECH PROJECT',
-    short_mn: 'Технологийн дэвшилд суурилсан "Соно Монголиа" зээлийн аппликэйшнийг амжилттай нэвтрүүлэн зах зээлд гаргасан.',
-    short_en: 'Successfully introduced and launched the Sono Mongolia loan application based on technological advancement.',
-    desc_mn: 'Монголын зах зээл дээр технологийн дэвшилтэд хурдыг ашиглах зорилгоор Соно Монголиа зээлийн аппликэйшнийг амжилттай нэвтрүүлэн ажиллаж чадсан.',
-    desc_en: 'Successfully implemented and operated the Sono Mongolia loan application to leverage technological advancement in the Mongolian market.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2019', 
-    title_mn: 'ТӨГРӨГ МАТ - ЗЭЭЛИЙН АТМ',
-    title_en: 'TUGRUG MAT - LOAN ATM',
-    short_mn: 'Банкны АТМ ойлголтыг эвдэж, зээл олгодог Т-мат төслийг амжилттай эхлүүлсэн.',
-    short_en: 'Successfully launched the T-mat project that breaks the traditional bank ATM concept by providing loans.',
-    desc_mn: 'Монголын зах зээл дээр Банкны АТМ гэх нэршил томьёог эвдэж чадсан Т-мат зээлийн АТМ ын төслийг эхлүүлсэн.',
-    desc_en: 'Launched the T-mat loan ATM project that successfully broke the traditional bank ATM terminology in the Mongolian market.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2020', 
-    title_mn: 'АНУ ДАХЬ САЛБАР & ӨРГӨЖИЛТ',
-    title_en: 'US BRANCH & EXPANSION',
-    short_mn: 'АНУ-ын Лос Анжелес хотод шинэ салбар нээх төсөл болон дотоодын Төгрөг Мат сүлжээг эрчимтэй тэлсэн.',
-    short_en: 'Intensively expanded the domestic Tugrug Mat network and opened a new branch project in Los Angeles, USA.',
-    desc_mn: 'Бид бичил санхүүгийн зах зээл дээрээс анхны салбар болох Чикаго хотод Моннимакс нэршлээр нээгээд удаагүй ч бидний гадны хөрөнгийг Монголын зах зээл дээр оруулж ирэх зорилгодоо хөтлөгдөн дахин нэг салбарыг Лос анджелес мужид нээхээр ажиллаад байна. Мөн Т-мат зээлийн АТМ-ыг маш амжилттай нэврүүлж, орон нутаг Улаанбаатар хот нийлээд 50 гаруй АТМ-ээр дамжуулан үйлчилгээ үзүүлж байна.',
-    desc_en: 'Shortly after opening our first branch in the microfinance market in Chicago under the name Monnimax, we are working to open another branch in Los Angeles to bring foreign investment to the Mongolian market. We have also successfully implemented the T-mat loan ATM, providing services through over 50 ATMs in rural areas and Ulaanbaatar.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2020', 
-    title_mn: 'ОЛОН УЛСЫН ТӨСӨЛ - ФИЛИППИН',
-    title_en: 'INTERNATIONAL PROJECT - PHILIPPINES',
-    short_mn: 'Филиппин улсад зээлийн АТМ сүлжээг нэвтрүүлж, гадны хөрөнгө оруулалт татах төслийг эхлүүлсэн.',
-    short_en: 'Introduced loan ATM network in the Philippines and launched a project to attract foreign investment.',
-    desc_mn: 'Төгрөг Мат буюу зээлийн АТМ ийн сүлжээг тэлэх зорилготой мөн гадны хөрөнгийг Монголын эдийн засагт дэмжлэг болгох гүүрэн гарц хэмээн нэрийдэж удаах сүлжээ улсаа Филиппин улсыг сонгон төслийн ажилдаа орсон.',
-    desc_en: 'Selected the Philippines as the target country for expanding the Tugrug Mat loan ATM network and started project work to serve as a bridge for bringing foreign investment to support the Mongolian economy.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  },
-  { 
-    year: '2021', 
-    title_mn: 'ХӨРӨНГӨ ОРУУЛАЛТ ТАТСАН',
-    title_en: 'ATTRACTED INVESTMENT',
-    short_mn: '12 тэрбум төгрөгийн хөрөнгө оруулалтыг амжилттай босгож, үйл ажиллагаагаа дахин шат ахиулсан.',
-    short_en: 'Successfully raised 12 billion tugrug investment and advanced operations to the next level.',
-    desc_mn: '12 тэрбум төгрөгийн хөрөнгө оруулалтын амжилттай босгож чадсан.',
-    desc_en: 'Successfully raised 12 billion tugrug investment.',
-    year_color: '#0d9488',
-    title_color: '#0f172a',
-    short_color: '#475569',
-    desc_color: '#475569'
-  }
-]
+const initialFormData: TabContent = {
+  title_mn: 'Бидний тухай',
+  title_en: 'About Us',
+  content_mn: '',
+  content_en: '',
+  image_url: '',
+  image_height: 'aspect-video',
+  origin_title_mn: '',
+  origin_title_en: '',
+  origin_p1_mn: '',
+  origin_p1_en: '',
+  origin_p2_mn: '',
+  origin_p2_en: '',
+  origin_p3_mn: '',
+  origin_p3_en: '',
+  whatWeDo_title_mn: '',
+  whatWeDo_title_en: '',
+  whatWeDo_content_mn: '',
+  whatWeDo_content_en: '',
+  sme_title_mn: '',
+  sme_title_en: '',
+  sme_p1_mn: '',
+  sme_p1_en: '',
+  sme_p2_mn: '',
+  sme_p2_en: '',
+  citizen_title_mn: '',
+  citizen_title_en: '',
+  citizen_p1_mn: '',
+  citizen_p1_en: '',
+  citizen_p2_mn: '',
+  citizen_p2_en: '',
+  origin_title_color: '#0f172a',
+  origin_title_size: 24,
+  origin_title_weight: '700',
+  origin_title_family: 'inherit',
+  origin_p1_color: '#475569',
+  origin_p1_size: 14,
+  origin_p1_weight: '400',
+  origin_p1_family: 'inherit',
+  origin_p2_color: '#475569',
+  origin_p2_size: 14,
+  origin_p2_weight: '400',
+  origin_p2_family: 'inherit',
+  origin_p3_color: '#0f172a',
+  origin_p3_size: 14,
+  origin_p3_weight: '600',
+  origin_p3_family: 'inherit',
+  whatWeDo_title_color: '#0f172a',
+  whatWeDo_title_size: 18,
+  whatWeDo_title_weight: '700',
+  whatWeDo_title_family: 'inherit',
+  whatWeDo_content_color: '#475569',
+  whatWeDo_content_size: 14,
+  whatWeDo_content_weight: '400',
+  whatWeDo_content_family: 'inherit',
+  sme_title_color: '#0f172a',
+  sme_title_size: 18,
+  sme_title_weight: '700',
+  sme_title_family: 'inherit',
+  sme_p1_color: '#475569',
+  sme_p1_size: 14,
+  sme_p1_weight: '400',
+  sme_p1_family: 'inherit',
+  sme_p2_color: '#475569',
+  sme_p2_size: 14,
+  sme_p2_weight: '400',
+  sme_p2_family: 'inherit',
+  citizen_title_color: '#0f172a',
+  citizen_title_size: 18,
+  citizen_title_weight: '700',
+  citizen_title_family: 'inherit',
+  citizen_p1_color: '#475569',
+  citizen_p1_size: 14,
+  citizen_p1_weight: '400',
+  citizen_p1_family: 'inherit',
+  citizen_p2_color: '#475569',
+  citizen_p2_size: 14,
+  citizen_p2_weight: '400',
+  citizen_p2_family: 'inherit',
+  origin_title_visible: true,
+  origin_p1_visible: true,
+  origin_p2_visible: true,
+  origin_p3_visible: true,
+  whatWeDo_title_visible: true,
+  whatWeDo_content_visible: true,
+  sme_title_visible: true,
+  sme_p1_visible: true,
+  sme_p2_visible: true,
+  citizen_title_visible: true,
+  citizen_p1_visible: true,
+  citizen_p2_visible: true,
+  timeline_events: []
+}
 
 export default function IntroTab({ onSave, loading = false }: IntroTabProps) {
-  const [intro, setIntro] = useState<TabContent>({
-    title_mn: 'Бидний тухай',
-    title_en: 'About Us',
-    content_mn: 'Манай компани нь үйл ажиллагаандаа тусгай анхаарал өгдөг. Бид үйлчлүүлэгчдийн эрүүл мэндийн төлөөл, орлого, төлөлтийн чадвартай төлөвлөлтийг хүчдэлж ажиллана.',
-    content_en: 'Our company pays special attention to its operations. We support customers health, income, and payment capacity planning.',
-    image_url: '',
-    image_height: 'aspect-video',
-    // Origin Story
-    origin_title_mn: 'Анх санхүүгийн зах зээлд Бичил Глобус-г үүсгэн байгуулах болсон шалтгаан',
-    origin_title_en: 'Why we founded Bichil Globus in the financial market',
-    origin_p1_mn: '2008 онд Банк санхүүгийн салбаруудад бичил зээлийн бүтээгдэхүүн гэж байхгүй байсан ба зээлийн үйлчилгээ нь дунд түвшиний амжиргаатай иргэдэд чиглэсэн зээлийн үйлчилгээнүүд түлхүү байдаг байсан. Мөн бичил зээлийн төвүүдийн тоо маш цөөхөн байсан. Энэ үед өрхийн зээл гэж байгаагүй.',
-    origin_p1_en: 'In 2008, there were no microfinance products in the banking and financial sectors...',
-    origin_p2_mn: 'Наймаачдад ашиг орлоготой, эх үүсвэр эргэлтийн хөрөнгөө нэмэгдүүлье гэхэд Банкны зээлийн шаардлагад тэнцэхгүй тогтвортой орлогогүй, барьцаагүй учир зээл авах боломжгүй байсан. Зарим нэг ББСБ болон Банкны зүгээс тогтмол орлоготой иргэдэд зээлийн үйлчилгээг санал болгодог тул наймаачид зээл огт авч чаддаггүй байсан.',
-    origin_p2_en: 'Traders could not get loans due to lack of stable income and collateral...',
-    origin_p3_mn: 'Энэхүү зах зээлийг олж хараад эдгээр хүмүүст яагаад зээл олгож болохгүй гэж санхүүгийн үйлчилгээг хүргэж болохгүй гэсэн санаа гараад үүний дагуу анх барьцаагүй зээлийн үйлчилгээг иргэдэд олгож ирсэн.',
-    origin_p3_en: 'We decided to provide financial services to these people...',
-    // What We Do
-    whatWeDo_title_mn: 'Юу хийдэг вэ?',
-    whatWeDo_title_en: 'What We Do?',
-    whatWeDo_content_mn: 'Манай нийт харилцагчдын дийлэнх хувийг жижиг дунд бизнес эрхлэгчид болон хувиараа хөдөлмөр эрхлэгчид эзэлдэг. Эдгээр иргэд нь нийгмийн даатгалын хураамж тогтмол төлдөггүй, банкны дансны хуулгаар орлогоо баталгаажуулах боломжгүй зэрэг шалтгаанаас улбаалан банкны зээлийн үйлчилгээг төдийлөн авч чаддаггүй юм. Харин бид тус нийгмийн бүлгүүдийн санхүүгийн чадамж, хэрэгцээ, шаардлагад нийцсэн 5 төрлийн зээлийн бүтээгдэхүүнийг санал болгон ажиллаж байна.',
-    whatWeDo_content_en: 'Most of our customers are small and medium business owners and self-employed individuals...',
-    // SME
-    sme_title_mn: 'Жижгээс дунд, дундаас томд',
-    sme_title_en: 'From Small to Medium to Large',
-    sme_p1_mn: 'Аль ч улс орон, цаг үед жижиг дунд бизнесүүд эдийн засгийг хөдөлгөгч гол хүч байдаг. Энэ утгаараа бид жижиг дунд бизнес эрхлэгчдийн эрэлт хэрэгцээнд нийцүүлэн бизнесийн зориулалттай зээлийн үйлчилгээг байгуулагдсан цагаасаа хойш голлон үзүүлж ирсэн.',
-    sme_p1_en: 'Small and medium enterprises are the main driving force of the economy...',
-    sme_p2_mn: 'Өнөөдрийн байдлаар "Бичил Глобус" Санхүүгийн нэгдэлд бүртгэлтэй нийт харилцагчдын 40 орчим хувийг жижиг дунд бизнес эрхлэгчид эзэлж байна. Үүнд худалдаа, үйлдвэрлэл, үйлчилгээ, барилгын салбарынхан зонхилдог.',
-    sme_p2_en: 'Currently, small and medium business owners make up about 40% of our registered customers...',
-    // Citizen
-    citizen_title_mn: 'Иргэн баян бол улс баян',
-    citizen_title_en: 'Wealthy Citizens, Wealthy Nation',
-    citizen_p1_mn: 'Зээлийн үйлчилгээ бол иргэдийг эдийн засгийн амьдралд идэвхтэй оролцох боломжийг олгож өгдөг. Эдийн засгийн идэвхтэй иргэнд ая тухтай амьдралыг бий болгож, амьжиргааны түвшингөө сайжруулах, цаашлаад нийгэмд баялгийг бүтээх нөхцөл бүрдэнэ.',
-    citizen_p1_en: 'Loan services enable citizens to participate actively in economic life...',
-    citizen_p2_mn: 'Өнгөрсөн 10 жилийн хугацаанд давхардсан тоогоор хот, хөдөөгийн 37,900 орчим өрхөд зээлийн үйлчилгээг шуурхай хүргэж үйлчилсэн байна. 2018 оны жилийн эцсийн байдлаар нийт зээлийн багцын 60%-ийг өрхийн санхүүжилтийн зориулалттай зээл эзэлж байна.',
-    citizen_p2_en: 'Over the past 10 years, we have provided loan services to approximately 37,900 households...',
-    // Font Styling - 12 хэсэг тус бүрийнх
-    // Origin Story
-    origin_title_color: '#0f172a',
-    origin_title_size: 24,
-    origin_title_weight: '700',
-    origin_title_family: 'inherit',
-    origin_p1_color: '#475569',
-    origin_p1_size: 14,
-    origin_p1_weight: '400',
-    origin_p1_family: 'inherit',
-    origin_p2_color: '#475569',
-    origin_p2_size: 14,
-    origin_p2_weight: '400',
-    origin_p2_family: 'inherit',
-    origin_p3_color: '#0f172a',
-    origin_p3_size: 14,
-    origin_p3_weight: '600',
-    origin_p3_family: 'inherit',
-    // What We Do
-    whatWeDo_title_color: '#0f172a',
-    whatWeDo_title_size: 18,
-    whatWeDo_title_weight: '700',
-    whatWeDo_title_family: 'inherit',
-    whatWeDo_content_color: '#475569',
-    whatWeDo_content_size: 14,
-    whatWeDo_content_weight: '400',
-    whatWeDo_content_family: 'inherit',
-    // SME
-    sme_title_color: '#0f172a',
-    sme_title_size: 18,
-    sme_title_weight: '700',
-    sme_title_family: 'inherit',
-    sme_p1_color: '#475569',
-    sme_p1_size: 14,
-    sme_p1_weight: '400',
-    sme_p1_family: 'inherit',
-    sme_p2_color: '#475569',
-    sme_p2_size: 14,
-    sme_p2_weight: '400',
-    sme_p2_family: 'inherit',
-    // Citizen
-    citizen_title_color: '#0f172a',
-    citizen_title_size: 18,
-    citizen_title_weight: '700',
-    citizen_title_family: 'inherit',
-    citizen_p1_color: '#475569',
-    citizen_p1_size: 14,
-    citizen_p1_weight: '400',
-    citizen_p1_family: 'inherit',
-    citizen_p2_color: '#475569',
-    citizen_p2_size: 14,
-    citizen_p2_weight: '400',
-    citizen_p2_family: 'inherit',
-    // Visibility defaults - all sections visible by default
-    origin_title_visible: true,
-    origin_p1_visible: true,
-    origin_p2_visible: true,
-    origin_p3_visible: true,
-    whatWeDo_title_visible: true,
-    whatWeDo_content_visible: true,
-    sme_title_visible: true,
-    sme_p1_visible: true,
-    sme_p2_visible: true,
-    citizen_title_visible: true,
-    citizen_p1_visible: true,
-    citizen_p2_visible: true,
-    // Timeline Events
-    timeline_events: historyEvents.map(event => ({ ...event, visible: true }))
-  })
-
+  const [intro, setIntro] = useState<TabContent>(initialFormData)
   const [expandedYear, setExpandedYear] = useState<number | null>(null)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const [revealedIndexes, setRevealedIndexes] = useState<Set<number>>(new Set())
@@ -409,11 +324,218 @@ export default function IntroTab({ onSave, loading = false }: IntroTabProps) {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingSection, setEditingSection] = useState<'demo' | 'timeline' | null>(null)
   const [previewLang, setPreviewLang] = useState<'mn' | 'en'>('mn')
+  const [fetchLoading, setFetchLoading] = useState(true)
+  
   const whatWeDo = useInViewAnimation()
   const timelineRef = useRef<HTMLDivElement | null>(null)
   const itemRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  // IntersectionObserver for timeline items
+  // Fetch data from API
+  useEffect(() => {
+    fetchAboutPage()
+  }, [])
+
+  const fetchAboutPage = async () => {
+    setFetchLoading(true)
+    try {
+      const response = await axiosInstance.get<APIAboutPage>('/about-page/3/')
+      console.log('About page data:', response.data)
+      
+      if (response.data && response.data.sections) {
+        const transformedData = transformAPIToTabContent(response.data)
+        setIntro(transformedData)
+      }
+    } catch (error) {
+      console.error('Failed to fetch about page:', error)
+      alert('Мэдээлэл татахад алдаа гарлаа')
+    } finally {
+      setFetchLoading(false)
+    }
+  }
+
+  const transformAPIToTabContent = (apiData: APIAboutPage): TabContent => {
+  const sections = apiData.sections || []
+  const result: TabContent = { ...initialFormData }
+
+  sections.forEach((section) => {
+    const sectionIndex = section.index
+    
+    // Helper to get translation by language code
+    const getTransByLang = (translations: APITranslation[], lang: string, field: 'title' | 'content') => {
+      const trans = translations.find(t => t.language_code === lang)
+      return trans?.[field] || ''
+    }
+
+    const getStyleByLang = (translations: APITranslation[], lang: string) => {
+      const trans = translations.find(t => t.language_code === lang)
+      return {
+        color: trans?.color || trans?.fontcolor || '#000000',
+        size: parseInt(trans?.fontsize || '14'),
+        weight: trans?.fontweight || '400',
+        family: trans?.fontfamily || 'inherit'
+      }
+    }
+
+    // Section 0: Origin Story (Бидний түүх)
+    if (sectionIndex === 0) {
+      result.origin_title_mn = getTransByLang(section.translations, 'MN', 'title')
+      result.origin_title_en = getTransByLang(section.translations, 'EN', 'title')
+      result.origin_title_visible = section.visible
+      
+      const titleStyle = getStyleByLang(section.translations, 'MN')
+      result.origin_title_color = titleStyle.color
+      result.origin_title_size = titleStyle.size
+      result.origin_title_weight = titleStyle.weight
+      result.origin_title_family = titleStyle.family
+
+      // Blocks (paragraphs)
+      section.blocks.forEach((block, blockIdx) => {
+        const content_mn = getTransByLang(block.translations, 'MN', 'content')
+        const content_en = getTransByLang(block.translations, 'EN', 'content')
+        const style = getStyleByLang(block.translations, 'MN')
+
+        if (blockIdx === 0) {
+          // Paragraph 1
+          result.origin_p1_mn = content_mn
+          result.origin_p1_en = content_en
+          result.origin_p1_color = style.color
+          result.origin_p1_size = style.size
+          result.origin_p1_weight = style.weight
+          result.origin_p1_family = style.family
+          result.origin_p1_visible = block.visible
+        } else if (blockIdx === 1) {
+          // Paragraph 2
+          result.origin_p2_mn = content_mn
+          result.origin_p2_en = content_en
+          result.origin_p2_color = style.color
+          result.origin_p2_size = style.size
+          result.origin_p2_weight = style.weight
+          result.origin_p2_family = style.family
+          result.origin_p2_visible = block.visible
+        } else if (blockIdx === 2) {
+          // Paragraph 3
+          result.origin_p3_mn = content_mn
+          result.origin_p3_en = content_en
+          result.origin_p3_color = style.color
+          result.origin_p3_size = style.size
+          result.origin_p3_weight = style.weight
+          result.origin_p3_family = style.family
+          result.origin_p3_visible = block.visible
+        }
+      })
+    }
+    
+    // Section 1: What We Do (Юу хийдэг вэ?)
+    else if (sectionIndex === 1) {
+      result.whatWeDo_title_mn = getTransByLang(section.translations, 'MN', 'title')
+      result.whatWeDo_title_en = getTransByLang(section.translations, 'EN', 'title')
+      result.whatWeDo_title_visible = section.visible
+      
+      const titleStyle = getStyleByLang(section.translations, 'MN')
+      result.whatWeDo_title_color = titleStyle.color
+      result.whatWeDo_title_size = titleStyle.size
+      result.whatWeDo_title_weight = titleStyle.weight
+      result.whatWeDo_title_family = titleStyle.family
+
+      if (section.blocks[0]) {
+        const content_mn = getTransByLang(section.blocks[0].translations, 'MN', 'content')
+        const content_en = getTransByLang(section.blocks[0].translations, 'EN', 'content')
+        const style = getStyleByLang(section.blocks[0].translations, 'MN')
+
+        result.whatWeDo_content_mn = content_mn
+        result.whatWeDo_content_en = content_en
+        result.whatWeDo_content_color = style.color
+        result.whatWeDo_content_size = style.size
+        result.whatWeDo_content_weight = style.weight
+        result.whatWeDo_content_family = style.family
+        result.whatWeDo_content_visible = section.blocks[0].visible
+      }
+    }
+    
+    // Section 2: SME (Жижиг дунд бизнес)
+    else if (sectionIndex === 2) {
+      result.sme_title_mn = getTransByLang(section.translations, 'MN', 'title')
+      result.sme_title_en = getTransByLang(section.translations, 'EN', 'title')
+      result.sme_title_visible = section.visible
+      
+      const titleStyle = getStyleByLang(section.translations, 'MN')
+      result.sme_title_color = titleStyle.color
+      result.sme_title_size = titleStyle.size
+      result.sme_title_weight = titleStyle.weight
+      result.sme_title_family = titleStyle.family
+
+      section.blocks.forEach((block, blockIdx) => {
+        const content_mn = getTransByLang(block.translations, 'MN', 'content')
+        const content_en = getTransByLang(block.translations, 'EN', 'content')
+        const style = getStyleByLang(block.translations, 'MN')
+
+        if (blockIdx === 0) {
+          result.sme_p1_mn = content_mn
+          result.sme_p1_en = content_en
+          result.sme_p1_color = style.color
+          result.sme_p1_size = style.size
+          result.sme_p1_weight = style.weight
+          result.sme_p1_family = style.family
+          result.sme_p1_visible = block.visible
+        } else if (blockIdx === 1) {
+          result.sme_p2_mn = content_mn
+          result.sme_p2_en = content_en
+          result.sme_p2_color = style.color
+          result.sme_p2_size = style.size
+          result.sme_p2_weight = style.weight
+          result.sme_p2_family = style.family
+          result.sme_p2_visible = block.visible
+        }
+      })
+    }
+    
+    // Section 3: Citizen (Иргэн баян бол улс баян)
+    else if (sectionIndex === 3) {
+      result.citizen_title_mn = getTransByLang(section.translations, 'MN', 'title')
+      result.citizen_title_en = getTransByLang(section.translations, 'EN', 'title')
+      result.citizen_title_visible = section.visible
+      
+      const titleStyle = getStyleByLang(section.translations, 'MN')
+      result.citizen_title_color = titleStyle.color
+      result.citizen_title_size = titleStyle.size
+      result.citizen_title_weight = titleStyle.weight
+      result.citizen_title_family = titleStyle.family
+
+      section.blocks.forEach((block, blockIdx) => {
+        const content_mn = getTransByLang(block.translations, 'MN', 'content')
+        const content_en = getTransByLang(block.translations, 'EN', 'content')
+        const style = getStyleByLang(block.translations, 'MN')
+
+        if (blockIdx === 0) {
+          result.citizen_p1_mn = content_mn
+          result.citizen_p1_en = content_en
+          result.citizen_p1_color = style.color
+          result.citizen_p1_size = style.size
+          result.citizen_p1_weight = style.weight
+          result.citizen_p1_family = style.family
+          result.citizen_p1_visible = block.visible
+        } else if (blockIdx === 1) {
+          result.citizen_p2_mn = content_mn
+          result.citizen_p2_en = content_en
+          result.citizen_p2_color = style.color
+          result.citizen_p2_size = style.size
+          result.citizen_p2_weight = style.weight
+          result.citizen_p2_family = style.family
+          result.citizen_p2_visible = block.visible
+        }
+      })
+    }
+  })
+
+  // Handle media/image
+  if (apiData.media && apiData.media.length > 0) {
+    result.image_url = apiData.media[0].url
+  }
+
+  return result
+}
+
+  // IntersectionObserver for timeline
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -439,9 +561,8 @@ export default function IntroTab({ onSave, loading = false }: IntroTabProps) {
 
     itemRefs.current.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [])
+  }, [intro.timeline_events])
 
-  // Track What We Do section reveal
   useEffect(() => {
     if (whatWeDo.visible && !revealedSections.has('whatWeDo')) {
       setRevealedSections(prev => {
@@ -452,8 +573,16 @@ export default function IntroTab({ onSave, loading = false }: IntroTabProps) {
     }
   }, [whatWeDo.visible, revealedSections])
 
-  const handleSave = () => {
-    onSave(intro)
+  const handleSave = async () => {
+    try {
+      // Transform TabContent back to API format
+      // For now, just call onSave
+      onSave(intro)
+      alert('Амжилттай хадгалагдлаа!')
+    } catch (error) {
+      console.error('Save failed:', error)
+      alert('Хадгалахад алдаа гарлаа')
+    }
   }
 
   const handleOpenEditModal = (section: 'demo' | 'timeline') => {
@@ -470,10 +599,20 @@ export default function IntroTab({ onSave, loading = false }: IntroTabProps) {
     setExpandedYear(expandedYear === index ? null : index)
   }
 
+  if (fetchLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Мэдээлэл татаж байна...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="grid md:grid-cols-1 gap-6">
-      {/* Preview - Frontend Style */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="sticky top-0 bg-slate-50 border-b border-slate-200 px-6 py-3 z-10 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900">Demo</h3>
           <div className="flex items-center gap-3">

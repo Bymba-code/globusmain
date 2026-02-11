@@ -16,9 +16,6 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-/* ----------------------------------
-   TYPE DEFINITIONS
------------------------------------*/
 interface OrgNode {
   id: string
   position: { x: number; y: number }

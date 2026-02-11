@@ -114,7 +114,6 @@ export default function BranchesPage() {
     try {
       const formDataToSend = new FormData()
       
-      // Add basic fields
       formDataToSend.append('name', formData.name)
       formDataToSend.append('location', formData.location)
       formDataToSend.append('area', formData.area || '')
@@ -125,15 +124,12 @@ export default function BranchesPage() {
       formDataToSend.append('latitude', formData.latitude !== null ? formData.latitude.toString() : '0')
       formDataToSend.append('longitude', formData.longitude !== null ? formData.longitude.toString() : '0')
       
-      // Add image file if selected
       if (formData.imageFile) {
         formDataToSend.append('image', formData.imageFile)
       }
       
-      // Add phones as JSON string
       const validPhones = formData.phones.filter(p => p.trim() !== '')
       
-      // Validate phones
       if (validPhones.length === 0) {
         alert('Дор хаяж нэг утасны дугаар оруулна уу')
         setSubmitting(false)
@@ -172,7 +168,6 @@ export default function BranchesPage() {
         const errors = error.response.data
         const errorMessages: string[] = []
         
-        // Handle phones errors
         if (errors.phones) {
           if (typeof errors.phones === 'string') {
             errorMessages.push(`Утас: ${errors.phones}`)
@@ -191,9 +186,8 @@ export default function BranchesPage() {
           }
         }
         
-        // Handle other errors
         for (const [field, messages] of Object.entries(errors)) {
-          if (field === 'phones') continue // Already handled
+          if (field === 'phones') continue 
           
           if (Array.isArray(messages)) {
             errorMessages.push(`${field}: ${messages.join(', ')}`)
@@ -247,7 +241,6 @@ export default function BranchesPage() {
       district: branch.district || '',
       imageFile: null,
     })
-    // Set existing image as preview
     setImagePreview(branch.image || '')
     setModalOpen(true)
   }
@@ -263,24 +256,20 @@ export default function BranchesPage() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    // Check file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       alert('Зургийн хэмжээ 5MB-аас бага байх ёстой')
       e.target.value = ''
       return
     }
 
-    // Check file type
     if (!file.type.startsWith('image/')) {
       alert('Зөвхөн зураг оруулна уу')
       e.target.value = ''
       return
     }
 
-    // Store the file
     setFormData(prev => ({ ...prev, imageFile: file }))
 
-    // Create preview
     const reader = new FileReader()
     reader.onloadend = () => {
       setImagePreview(reader.result as string)
@@ -297,7 +286,6 @@ export default function BranchesPage() {
   const handleRemoveImage = () => {
     setFormData(prev => ({ ...prev, imageFile: null }))
     setImagePreview('')
-    // Reset file input
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
     if (fileInput) fileInput.value = ''
   }
