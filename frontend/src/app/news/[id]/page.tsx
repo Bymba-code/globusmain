@@ -5,67 +5,170 @@ import Image from "next/image"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import Container from "@/components/Container"
+import { axiosInstance } from '@/lib/axios'
 
-// Backend category structure
-interface CategoryType {
+interface ApiTranslation {
+  id?: number
+  language: number 
+  label: string
+  font: string
+  family: string
+  weight: string
+  size: string
+}
+
+interface ApiImage {
   id: number
+  image: string
+}
+
+interface ApiSocial {
+  id: number
+  social: string
+  icon: string
+}
+
+interface ApiNewsItem {
+  id: number
+  category: number
+  image: string 
+  image_url?: string
+  video: string
+  feature: boolean
+  render: boolean
+  readtime: number
   slug: string
+  date: string
+  images: ApiImage[]
+  socials: ApiSocial[]
+  title_translations: ApiTranslation[]
+  shortdesc_translations: ApiTranslation[]
+  content_translations: ApiTranslation[]
+}
+
+interface CategoryTranslation {
+  id: number
+  language: number
   label: string
 }
 
-// News Item type definition
-export interface NewsItem {
-  id: string
+interface CategoryAPI {
+  id: number
+  translations: CategoryTranslation[]
+}
+
+interface NewsItem {
+  id: number
   title: string
+  slug: string
   excerpt: string
   content: string
   bannerImage: string
-  category: CategoryType
+  category: number
+  categoryLabel: string
   publishedAt: string
   readTime: number
-  isActive: boolean
   isPinnedNews: boolean
-  isPinnedHome: boolean
+  images: string[]
+  socials: { social: string; icon: string }[]
 }
 
+const getTranslation = (translations: ApiTranslation[], language: number): ApiTranslation | undefined => {
+  return translations.find(t => t.language === language)
+}
+
+const getCategoryTranslation = (translations: CategoryTranslation[], language: number): string => {
+  const translation = translations.find(t => t.language === language)
+  return translation?.label || 'Мэдээ'
+}
 
 export default function NewsDetailPage() {
   const params = useParams();
-  const newsId = params.id as string;
+  const newsSlug = params.id as string;
   const [news, setNews] = useState<NewsItem | null>(null);
+  const [categories, setCategories] = useState<CategoryAPI[]>([]);
+  const [allNews, setAllNews] = useState<ApiNewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [relatedNews, setRelatedNews] = useState<NewsItem[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchNews();
-  }, [newsId]);
+    fetchCategories();
+    fetchAllNews();
+  }, []);
+
+  useEffect(() => {
+    if (allNews.length > 0 && categories.length > 0) {
+      fetchNews();
+    }
+  }, [newsSlug, allNews, categories]);
+
+  const fetchCategories = async () => {
+    try {
+      const response = await axiosInstance.get<CategoryAPI[]>('/news-category/')
+      if (response.data && Array.isArray(response.data)) {
+        setCategories(response.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch categories:', error)
+    }
+  }
+
+  const fetchAllNews = async () => {
+    try {
+      const response = await axiosInstance.get<ApiNewsItem[]>('/news/')
+      if (response.data && Array.isArray(response.data)) {
+        setAllNews(response.data.filter(item => item.render))
+      }
+    } catch (error) {
+      console.error('Failed to fetch all news:', error)
+    }
+  }
 
   const fetchNews = async () => {
     try {
+      setLoading(true);
       setError(false);
-      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
-      const lang = 'mn' // TODO: Get from LanguageContext or header
       
-      // Fetch news by ID
-      const response = await fetch(`${apiUrl}/api/news/${newsId}/?lang=${lang}`)
-      if (!response.ok) throw new Error('Failed to fetch news')
-      const foundNews = await response.json()
-      setNews(foundNews || null);
-
-      // Get next news from backend
-      if (foundNews) {
-        try {
-          const nextResponse = await fetch(`${apiUrl}/api/news/${newsId}/next/?lang=${lang}`)
-          if (nextResponse.ok) {
-            const nextNews = await nextResponse.json()
-            setRelatedNews(nextNews ? [nextNews] : [])
-          }
-        } catch (err) {
-          console.error("Failed to fetch next news:", err)
-        }
+      // Find news by slug
+      const foundNews = allNews.find((item) => item.slug === newsSlug);
+      
+      if (!foundNews) {
+        setNews(null);
+        setLoading(false);
+        return;
       }
+
+      // Get translations
+      const titleMn = getTranslation(foundNews.title_translations, 1);
+      const excerptMn = getTranslation(foundNews.shortdesc_translations, 1);
+      const contentMn = getTranslation(foundNews.content_translations, 1);
+
+      // Get category label
+      const category = categories.find(c => c.id === foundNews.category);
+      const categoryLabel = category ? getCategoryTranslation(category.translations, 1) : 'Мэдээ';
+
+      // Use image_url if available
+      const imageUrl = foundNews.image_url || foundNews.image || '/placeholder-news.jpg';
+
+      // Map to frontend format
+      const mappedNews: NewsItem = {
+        id: foundNews.id,
+        title: titleMn?.label || 'Гарчиггүй',
+        slug: foundNews.slug || `news-${foundNews.id}`,
+        excerpt: excerptMn?.label || '',
+        content: contentMn?.label || '',
+        bannerImage: imageUrl,
+        category: foundNews.category,
+        categoryLabel: categoryLabel,
+        publishedAt: foundNews.date,
+        readTime: foundNews.readtime || 5,
+        isPinnedNews: foundNews.feature || false,
+        images: foundNews.images?.map(img => img.image) || [],
+        socials: foundNews.socials?.map(s => ({ social: s.social, icon: s.icon })) || [],
+      };
+
+      setNews(mappedNews);
     } catch (error) {
       console.error("Failed to fetch news:", error);
       setError(true);
@@ -74,8 +177,79 @@ export default function NewsDetailPage() {
     }
   };
 
-  // getNextNews now handled by backend API endpoint
-  // See: GET /api/news/{id}/next/?lang={lang}
+  // Get related news (same category, excluding current)
+  const getRelatedNews = (): NewsItem[] => {
+    if (!news || allNews.length === 0) return [];
+
+    return allNews
+      .filter(item => 
+        item.slug !== newsSlug && 
+        item.category === news.category &&
+        item.render
+      )
+      .slice(0, 3)
+      .map(item => {
+        const titleMn = getTranslation(item.title_translations, 1);
+        const category = categories.find(c => c.id === item.category);
+        const categoryLabel = category ? getCategoryTranslation(category.translations, 1) : 'Мэдээ';
+        const imageUrl = item.image_url || item.image || '/placeholder-news.jpg';
+
+        return {
+          id: item.id,
+          title: titleMn?.label || 'Гарчиггүй',
+          slug: item.slug || `news-${item.id}`,
+          excerpt: '',
+          content: '',
+          bannerImage: imageUrl,
+          category: item.category,
+          categoryLabel: categoryLabel,
+          publishedAt: item.date,
+          readTime: item.readtime || 5,
+          isPinnedNews: item.feature || false,
+          images: [],
+          socials: [],
+        };
+      });
+  };
+
+  // Get next news (by date)
+  const getNextNews = (): NewsItem | null => {
+    if (allNews.length === 0) return null;
+
+    const sortedByDate = [...allNews]
+      .filter(item => item.render)
+      .sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+    
+    const currentIndex = sortedByDate.findIndex(item => item.slug === newsSlug);
+    
+    if (currentIndex >= 0 && currentIndex < sortedByDate.length - 1) {
+      const nextItem = sortedByDate[currentIndex + 1];
+      const titleMn = getTranslation(nextItem.title_translations, 1);
+      const category = categories.find(c => c.id === nextItem.category);
+      const categoryLabel = category ? getCategoryTranslation(category.translations, 1) : 'Мэдээ';
+      const imageUrl = nextItem.image_url || nextItem.image || '/placeholder-news.jpg';
+
+      return {
+        id: nextItem.id,
+        title: titleMn?.label || 'Гарчиггүй',
+        slug: nextItem.slug || `news-${nextItem.id}`,
+        excerpt: '',
+        content: '',
+        bannerImage: imageUrl,
+        category: nextItem.category,
+        categoryLabel: categoryLabel,
+        publishedAt: nextItem.date,
+        readTime: nextItem.readtime || 5,
+        isPinnedNews: nextItem.feature || false,
+        images: [],
+        socials: [],
+      };
+    }
+    
+    return null;
+  };
 
   if (loading) {
     return (
@@ -119,24 +293,6 @@ export default function NewsDetailPage() {
                 <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
                 <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
                 <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
-                <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
-              </div>
-
-              {/* Related News Skeleton */}
-              <div className="border-t pt-8">
-                <div className="h-7 bg-gray-200 rounded w-48 mb-4 animate-pulse"></div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="bg-gray-100 rounded-lg overflow-hidden">
-                      <div className="relative aspect-video bg-gray-200 animate-pulse"></div>
-                      <div className="p-3 space-y-2">
-                        <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
-                        <div className="h-3 bg-gray-200 rounded w-1/3 animate-pulse"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             </div>
           </div>
@@ -151,8 +307,8 @@ export default function NewsDetailPage() {
         <Container>
           <div className="py-20 text-center">
             <h1 className="text-3xl font-bold text-gray-900 mb-4">Мэдээ олдсонгүй</h1>
-            <Link href="/news" className="inline-flex items-center gap-2 px-4 py-2.5 text-teal-600 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-all duration-200 font-medium group">
-              <span className="group-hover:-translate-x-1 transition-transform duration-200">←</span>
+            <Link href="/news" className="inline-flex items-center gap-2 px-6 py-3 text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-all duration-200 font-medium">
+              Мэдээ рүү буцах
             </Link>
           </div>
         </Container>
@@ -197,8 +353,8 @@ export default function NewsDetailPage() {
     );
   }
 
-  const categoryLabel = news.category.label;
-  const pinnedBadge = null
+  const relatedNews = getRelatedNews();
+  const nextNews = getNextNews();
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -230,17 +386,26 @@ export default function NewsDetailPage() {
             <div className="mb-6">
               <div className="flex items-center gap-3 mb-3">
                 <span className="px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-sm font-medium">
-                  {categoryLabel}
+                  {news.categoryLabel}
                 </span>
-                {pinnedBadge}
-                <span className="text-gray-500 text-sm">{new Date(news.publishedAt).toLocaleDateString()}</span>
+                {news.isPinnedNews && (
+                  <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm font-medium flex items-center gap-1">
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" />
+                    </svg>
+                    Онцлох
+                  </span>
+                )}
+                <span className="text-gray-500 text-sm">{new Date(news.publishedAt).toLocaleDateString('mn-MN')} • {news.readTime} мин</span>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
                 {news.title}
               </h1>
-              <p className="text-lg text-gray-600">
-                {news.excerpt}
-              </p>
+              {news.excerpt && (
+                <p className="text-lg text-gray-600">
+                  {news.excerpt}
+                </p>
+              )}
             </div>
 
             {/* Banner Image */}
@@ -252,6 +417,10 @@ export default function NewsDetailPage() {
                 fill
                 unoptimized
                 className="object-cover hover:scale-105 transition-transform duration-300"
+                onError={(e) => {
+                  const target = e.target as HTMLImageElement
+                  target.src = '/placeholder-news.jpg'
+                }}
               />
               <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center">
                 <div className="text-white opacity-0 hover:opacity-100 transition-opacity">
@@ -263,101 +432,147 @@ export default function NewsDetailPage() {
             </div>
 
             {/* Content */}
-            <div className="prose prose-lg max-w-none mb-8">
-              <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {news.content}
+            {news.content && (
+              <div className="prose prose-lg max-w-none mb-8">
+                <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                  {news.content}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Additional Images */}
+            {news.images && news.images.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">Нэмэлт зургууд</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {news.images.map((img, index) => (
+                    <div 
+                      key={index} 
+                      className="relative aspect-video rounded-lg overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
+                      onClick={() => setSelectedImage(img)}
+                    >
+                      <Image
+                        src={img}
+                        alt={`${news.title} - Зураг ${index + 1}`}
+                        fill
+                        unoptimized
+                        className="object-cover hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          target.src = '/placeholder-news.jpg'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Social Share */}
             <div className="border-t border-b py-8 mb-8">
               <h3 className="text-sm font-semibold text-gray-700 mb-4">Мэдээг хуваалцах</h3>
               <div className="flex items-center gap-3">
-                {/* Facebook Share */}
-                <a
-                  href={`https://www.facebook.com/sharer/sharer.php?u=${typeof window !== 'undefined' ? window.location.href : ''}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-blue-500 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  title="Facebook-д хуваалцах"
-                >
+               
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                   </svg>
-                </a>
-
-                {/* Twitter/X Share */}
-                <a
-                  href={`https://twitter.com/intent/tweet?url=${typeof window !== 'undefined' ? window.location.href : ''}&text=${encodeURIComponent(news.title)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-black hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
-                  title="X-д хуваалцах"
-                >
+           
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.514l-5.106-6.694-5.979 6.694H2.42l7.728-8.835L1.497 2.25h6.886l4.612 6.105L17.457 2.25zM16.369 20.033h1.83L5.337 4.059H3.425l12.944 15.974z" />
                   </svg>
-                </a>
+                
 
-                {/* Instagram Share (Copy link) */}
+                {/* Copy Link */}
                 <button
                   onClick={() => {
                     if (typeof window !== 'undefined') {
                       navigator.clipboard.writeText(window.location.href);
-                      alert('Мэдээний холбоосыг хулиалуулж авлаа');
+                      alert('Мэдээний холбоосыг хуулсан');
                     }
                   }}
-                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-gradient-to-br hover:from-purple-500 hover:to-pink-500 hover:text-white transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
-                  title="Instagram-д хуваалцах"
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-teal-500 hover:text-white transition-all duration-300"
+                  title="Холбоос хуулах"
                 >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.204-.012 3.584-.07 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163C8.756 0 8.331.012 7.052.07 2.696.272.273 2.69.073 7.052.012 8.331 0 8.756 0 12s.012 3.669.07 4.948c.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.7.07 4.948.07 3.248 0 3.669-.012 4.948-.07 4.354-.2 6.782-2.618 6.979-6.98.058-1.28.07-1.7.07-4.948 0-3.248-.012-3.667-.07-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.012 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm4.965-10.322a1.44 1.44 0 110 2.881 1.44 1.44 0 010-2.881z" />
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
               </div>
             </div>
 
             {/* Related News */}
-
-            {/* Next News */}
-            {relatedNews.length > 0 && relatedNews[0] && (
-              <div className="border-t pt-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">Дараагийн мэдээ</h2>
-                {(() => {
-                  const nextNews = relatedNews[0];
-                  return (
+            {relatedNews.length > 0 && (
+              <div className="border-t pt-8 mb-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">Холбоотой мэдээ</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {relatedNews.map((item) => (
                     <Link
-                      href={`/news/${nextNews?.id}`}
-                      className="group flex gap-4 bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-all hover:border-teal-300"
+                      key={item.id}
+                      href={`/news/${item.slug}`}
+                      className="group bg-gray-50 rounded-lg overflow-hidden hover:shadow-lg transition-all hover:bg-white"
                     >
-                      <div className="relative w-40 aspect-video overflow-hidden bg-gray-100 flex-shrink-0">
+                      <div className="relative aspect-video overflow-hidden bg-gray-200">
                         <Image
-                          src={nextNews?.bannerImage || ''}
-                          alt={nextNews?.title || ''}
+                          src={item.bannerImage}
+                          alt={item.title}
                           fill
                           unoptimized
                           className="object-cover group-hover:scale-105 transition-transform"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            target.src = '/placeholder-news.jpg'
+                          }}
                         />
                       </div>
-                      <div className="p-4 flex-1 flex flex-col justify-between">
-                        <div>
-                          <p className="text-xs text-gray-500 mb-2">
-                            {nextNews?.category.label || 'Мэдээ'}
-                          </p>
-                          <h3 className="font-semibold text-gray-900 line-clamp-2 group-hover:text-teal-600 transition-colors">
-                            {nextNews?.title}
-                          </h3>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-2">{nextNews?.publishedAt && new Date(nextNews.publishedAt).toLocaleDateString()}</p>
-                      </div>
-                      <div className="flex items-center pr-4 text-teal-600 group-hover:translate-x-1 transition-transform">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
+                      <div className="p-3">
+                        <p className="text-xs text-gray-500 mb-2">{item.categoryLabel}</p>
+                        <h3 className="font-semibold text-gray-900 line-clamp-2 group-hover:text-teal-600 transition-colors">
+                          {item.title}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-2">{new Date(item.publishedAt).toLocaleDateString('mn-MN')}</p>
                       </div>
                     </Link>
-                  );
-                })()}
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Next News */}
+            {nextNews && (
+              <div className="border-t pt-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">Дараагийн мэдээ</h2>
+                <Link
+                  href={`/news/${nextNews.slug}`}
+                  className="group flex gap-4 bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-lg transition-all hover:border-teal-300"
+                >
+                  <div className="relative w-40 aspect-video overflow-hidden bg-gray-100 flex-shrink-0">
+                    <Image
+                      src={nextNews.bannerImage}
+                      alt={nextNews.title}
+                      fill
+                      unoptimized
+                      className="object-cover group-hover:scale-105 transition-transform"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement
+                        target.src = '/placeholder-news.jpg'
+                      }}
+                    />
+                  </div>
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-2">{nextNews.categoryLabel}</p>
+                      <h3 className="font-semibold text-gray-900 line-clamp-2 group-hover:text-teal-600 transition-colors">
+                        {nextNews.title}
+                      </h3>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">{new Date(nextNews.publishedAt).toLocaleDateString('mn-MN')}</p>
+                  </div>
+                  <div className="flex items-center pr-4 text-teal-600 group-hover:translate-x-1 transition-transform">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </Link>
               </div>
             )}
           </div>
@@ -370,14 +585,18 @@ export default function NewsDetailPage() {
           className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
           onClick={() => setSelectedImage(null)}
         >
-          <div className="relative max-w-4xl w-full max-h-96 md:max-h-full" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-6xl w-full" onClick={(e) => e.stopPropagation()}>
             <Image
               src={selectedImage}
               alt="Том зураг"
               width={1200}
               height={800}
               unoptimized
-              className="object-contain w-full h-auto"
+              className="object-contain w-full h-auto max-h-[90vh]"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement
+                target.src = '/placeholder-news.jpg'
+              }}
             />
             <button
               onClick={() => setSelectedImage(null)}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/contexts/LanguageContext'
-import api from '@/lib/api'
+import axiosInstance from '@/config/axiosConfig'
 
 interface Translation {
   id: number
@@ -35,7 +35,7 @@ export default function AccordionSlider() {
   useEffect(() => {
     const fetchSlides = async () => {
       try {
-        const response = await api.get('/CTA/') 
+        const response = await axiosInstance.get('/CTA/') 
         if (response && response.status === 200) {
           const sortedSlides = response.data.sort((a: SlideData, b: SlideData) => a.index - b.index)
           setSlidesData(sortedSlides)

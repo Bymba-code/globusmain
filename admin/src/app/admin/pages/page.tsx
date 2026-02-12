@@ -3,227 +3,245 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '@/components/AdminLayout';
 import Modal from '@/components/Modal';
-import { Input, Textarea, Button, PageHeader } from '@/components/FormElements';
-import ImageUpload from '@/components/ImageUpload';
-import { PlusIcon, DocumentTextIcon, TrashIcon, PencilIcon, EyeIcon, LinkIcon, CalendarIcon, PhotoIcon, SparklesIcon, GlobeAltIcon, CheckCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
-import { mockPagesService, type CustomPage } from '@/data/mockPages';
+import { Button } from '@/components/FormElements';
+import {
+  PlusIcon, DocumentTextIcon, TrashIcon, PencilIcon, EyeIcon,
+  LinkIcon, CalendarIcon, PhotoIcon, SparklesIcon, GlobeAltIcon,
+  CheckCircleIcon, ClockIcon, ChevronDownIcon, ChevronUpIcon,
+} from '@heroicons/react/24/outline';
+import {axiosInstance} from '@/lib/axios';
+
+// ─── API Types ────────────────────────────────────────────────────────────────
+
+interface ApiTranslation {
+  id?: number
+  language: number          // 1 = MN, 2 = EN
+  label: string
+  font?: string
+  family?: string
+  weight?: string
+  size?: string
+}
+
+interface ApiPage {
+  id: number
+  url: string
+  active: boolean
+  image: string | null
+  title_translations: ApiTranslation[]
+  description_translations: ApiTranslation[]
+}
+
+// ─── Form state ───────────────────────────────────────────────────────────────
+
+interface FormData {
+  url: string
+  active: boolean
+  image: string
+  title_mn: string
+  title_en: string
+  title_font: string
+  title_family: string
+  title_weight: string
+  title_size: string
+  description_mn: string
+  description_en: string
+  desc_font: string
+  desc_family: string
+  desc_weight: string
+  desc_size: string
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getTrans = (translations: ApiTranslation[], langId: number): ApiTranslation =>
+  translations.find(t => t.language === langId) || { language: langId, label: '' }
+
+const defaultForm = (): FormData => ({
+  url: '',
+  active: true,
+  image: '',
+  title_mn: '',
+  title_en: '',
+  title_font: 'Arial',
+  title_family: 'sans-serif',
+  title_weight: 'bold',
+  title_size: '32px',
+  description_mn: '',
+  description_en: '',
+  desc_font: 'Arial',
+  desc_family: 'sans-serif',
+  desc_weight: 'normal',
+  desc_size: '16px',
+})
+
+const toPayload = (f: FormData) => ({
+  url: f.url,
+  active: f.active,
+  image: f.image || null,
+  title_translations: [
+    { language: 1, label: f.title_mn, font: f.title_font, family: f.title_family, weight: f.title_weight, size: f.title_size },
+    { language: 2, label: f.title_en, font: f.title_font, family: f.title_family, weight: f.title_weight, size: f.title_size },
+  ],
+  description_translations: [
+    { language: 1, label: f.description_mn, font: f.desc_font, family: f.desc_family, weight: f.desc_weight, size: f.desc_size },
+    { language: 2, label: f.description_en, font: f.desc_font, family: f.desc_family, weight: f.desc_weight, size: f.desc_size },
+  ],
+})
+
+const fromApi = (p: ApiPage): FormData => {
+  const tmn = getTrans(p.title_translations, 1)
+  const ten = getTrans(p.title_translations, 2)
+  const dmn = getTrans(p.description_translations, 1)
+  return {
+    url:            p.url,
+    active:         p.active,
+    image:          p.image || '',
+    title_mn:       tmn.label,
+    title_en:       ten.label,
+    title_font:     tmn.font   || 'Arial',
+    title_family:   tmn.family || 'sans-serif',
+    title_weight:   tmn.weight || 'bold',
+    title_size:     tmn.size   || '32px',
+    description_mn: dmn.label,
+    description_en: getTrans(p.description_translations, 2).label,
+    desc_font:      dmn.font   || 'Arial',
+    desc_family:    dmn.family || 'sans-serif',
+    desc_weight:    dmn.weight || 'normal',
+    desc_size:      dmn.size   || '16px',
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PagesManager() {
-  const [pages, setPages] = useState<CustomPage[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingPage, setEditingPage] = useState<CustomPage | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewData, setPreviewData] = useState<CustomPage | null>(null);
-  const [previewLanguage, setPreviewLanguage] = useState<'mn' | 'en'>('mn');
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [showPagesList, setShowPagesList] = useState(true);
+  const [pages,         setPages]         = useState<ApiPage[]>([])
+  const [formData,      setFormData]      = useState<FormData>(defaultForm())
+  const [editingPage,   setEditingPage]   = useState<ApiPage | null>(null)
+  const [isEditing,     setIsEditing]     = useState(false)
+  const [showPreview,   setShowPreview]   = useState(false)
+  const [previewPage,   setPreviewPage]   = useState<ApiPage | null>(null)
+  const [loading,       setLoading]       = useState(false)
+  const [saving,        setSaving]        = useState(false)
+  const [showList,      setShowList]      = useState(true)
 
-  const [formData, setFormData] = useState({
-    slug: '',
-    title_mn: '',
-    title_en: '',
-    content_mn: '',
-    content_en: '',
-    meta_description_mn: '',
-    meta_description_en: '',
-    image_url: '',
-    title_color: '#1F2937',
-    title_size: 28,
-    title_weight: '600',
-    title_family: 'Inter, system-ui, -apple-system, sans-serif',
-    content_color: '#374151',
-    content_size: 16,
-    content_weight: '400',
-    content_family: 'Inter, system-ui, -apple-system, sans-serif',
-    is_published: true,
-  });
+  useEffect(() => { loadPages() }, [])
 
-  useEffect(() => {
-    loadPages();
-  }, []);
+  // ── CRUD ────────────────────────────────────────────────────────────────────
 
   const loadPages = async () => {
     try {
-      setLoading(true);
-      const data = await mockPagesService.getAllPages();
-      setPages(data);
-    } catch (error) {
-      console.error('Failed to load pages:', error);
+      setLoading(true)
+      const res = await axiosInstance.get<ApiPage[]>('/page/')
+      setPages(res.data)
+    } catch (err) {
+      console.error('Failed to load pages:', err)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+    e.preventDefault()
+    setSaving(true)
     try {
-      setSaving(true);
-      if (editingPage) {
-        await mockPagesService.updatePage(editingPage.id, formData);
+      const payload = toPayload(formData)
+      if (isEditing && editingPage) {
+        await axiosInstance.put(`/page/${editingPage.id}/`, payload)
+        alert('Хуудас амжилттай шинэчлэгдлээ!')
       } else {
-        await mockPagesService.createPage(formData);
+        await axiosInstance.post('/page/', payload)
+        alert('Шинэ хуудас амжилттай үүслээ!')
       }
-
-      await loadPages();
-      resetForm();
-      const message = editingPage ? 'Хуудас амжилттай шинэчлэгдлээ!' : 'Шинэ хуудас амжилттай үүслээ!';
-      alert(message);
-    } catch (error) {
-      console.error('Failed to save page:', error);
-      alert('Хадгалахад алдаа гарлаа');
+      await loadPages()
+      resetForm()
+    } catch (err: any) {
+      console.error('Save failed:', err)
+      alert(`Хадгалахад алдаа гарлаа: ${err.response?.data?.detail || err.message}`)
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
-  };
+  }
 
-  const handleEdit = (page: CustomPage) => {
-    setEditingPage(page);
-    setFormData({
-      slug: page.slug,
-      title_mn: page.title_mn,
-      title_en: page.title_en,
-      content_mn: page.content_mn,
-      content_en: page.content_en,
-      meta_description_mn: page.meta_description_mn || '',
-      meta_description_en: page.meta_description_en || '',
-      image_url: page.image_url || '',
-      title_color: page.title_color || '#1F2937',
-      title_size: page.title_size || 28,
-      title_weight: page.title_weight || '600',
-      title_family: page.title_family || 'Inter, system-ui, -apple-system, sans-serif',
-      content_color: page.content_color || '#374151',
-      content_size: page.content_size || 16,
-      content_weight: page.content_weight || '400',
-      content_family: page.content_family || 'Inter, system-ui, -apple-system, sans-serif',
-      is_published: page.is_published,
-    });
-    setIsEditing(true);
-    // Scroll to top to show the form
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleEdit = (page: ApiPage) => {
+    setEditingPage(page)
+    setFormData(fromApi(page))
+    setIsEditing(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Энэ хуудсыг устгахдаа итгэлтэй байна уу?')) return;
-
+  const handleDelete = async (id: number) => {
+    if (!confirm('Энэ хуудсыг устгахдаа итгэлтэй байна уу?')) return
     try {
-      await mockPagesService.deletePage(id);
-      await loadPages();
-      alert('Хуудас устгагдлаа!');
-    } catch (error) {
-      console.error('Failed to delete page:', error);
-      alert('Устгахад алдаа гарлаа');
+      await axiosInstance.delete(`/page/${id}/`)
+      alert('Хуудас устгагдлаа!')
+      await loadPages()
+    } catch (err: any) {
+      console.error('Delete failed:', err)
+      alert(`Устгахад алдаа гарлаа: ${err.response?.data?.detail || err.message}`)
     }
-  };
+  }
 
   const resetForm = () => {
-    setFormData({
-      slug: '',
-      title_mn: '',
-      title_en: '',
-      content_mn: '',
-      content_en: '',
-      meta_description_mn: '',
-      meta_description_en: '',
-      image_url: '',
-      title_color: '#1F2937',
-      title_size: 28,
-      title_weight: '600',
-      title_family: 'Inter, system-ui, -apple-system, sans-serif',
-      content_color: '#374151',
-      content_size: 16,
-      content_weight: '400',
-      content_family: 'Inter, system-ui, -apple-system, sans-serif',
-      is_published: true,
-    });
-    setEditingPage(null);
-    setIsEditing(false);
-  };
+    setFormData(defaultForm())
+    setEditingPage(null)
+    setIsEditing(false)
+  }
 
-  const handlePreview = () => {
-    setPreviewData({
-      id: editingPage?.id || 'preview',
-      slug: formData.slug,
-      title_mn: formData.title_mn,
-      title_en: formData.title_en,
-      content_mn: formData.content_mn,
-      content_en: formData.content_en,
-      meta_description_mn: formData.meta_description_mn,
-      meta_description_en: formData.meta_description_en,
-      image_url: formData.image_url,
-      title_color: formData.title_color,
-      title_size: formData.title_size,
-      title_weight: formData.title_weight,
-      title_family: formData.title_family,
-      content_color: formData.content_color,
-      content_size: formData.content_size,
-      content_weight: formData.content_weight,
-      content_family: formData.content_family,
-      is_published: formData.is_published,
-      created_at: editingPage?.created_at || new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-    setShowPreview(true);
-  };
+  const upd = (patch: Partial<FormData>) => setFormData(prev => ({ ...prev, ...patch }))
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert('Хуулагдлаа!');
-  };
+    navigator.clipboard.writeText(text)
+    alert('Хуулагдлаа!')
+  }
+
 
   return (
     <AdminLayout title="Хуудас удирдах">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
         {/* Header */}
         <div className="mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Хуудас удирдах</h1>
-          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Хуудас удирдах</h1>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-            <div className="text-sm font-medium text-gray-600 mb-2">Нийт хуудас</div>
-            <div className="text-3xl font-bold text-gray-900">{pages.length}</div>
-          </div>
-          
-          <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-            <div className="text-sm font-medium text-gray-600 mb-2">Нийтлэгдсэн</div>
-            <div className="text-3xl font-bold text-gray-900">{pages.filter(p => p.is_published).length}</div>
-          </div>
-          
-          <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-            <div className="text-sm font-medium text-gray-600 mb-2">Ноорог</div>
-            <div className="text-3xl font-bold text-gray-900">{pages.filter(p => !p.is_published).length}</div>
-          </div>
+          {[
+            { label: 'Нийт хуудас',  value: pages.length },
+            { label: 'Идэвхтэй',     value: pages.filter(p => p.active).length },
+            { label: 'Идэвхгүй',     value: pages.filter(p => !p.active).length },
+          ].map(s => (
+            <div key={s.label} className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+              <div className="text-sm font-medium text-gray-600 mb-2">{s.label}</div>
+              <div className="text-3xl font-bold text-gray-900">{s.value}</div>
+            </div>
+          ))}
         </div>
 
-        {/* Form Section */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8">
           <div className="px-6 py-4 border-b border-gray-100">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div>
-                  {isEditing && (
-                    <div className="p-2 rounded-lg bg-amber-100">
-                      <PencilIcon className="h-5 w-5 text-amber-600" />
-                    </div>
-                  )}
-                </div>
+                {isEditing && (
+                  <div className="p-2 rounded-lg bg-amber-100">
+                    <PencilIcon className="h-5 w-5 text-amber-600" />
+                  </div>
+                )}
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">
-                    {isEditing ? 'Хуудас засварлах' : ''}
+                    {isEditing ? 'Хуудас засварлах' : 'Шинэ хуудас'}
                   </h2>
-                  <p className="text-sm text-gray-500">
-                    {isEditing ? `"${editingPage?.title_mn}" хуудсыг засварлаж байна` : ''}
-                  </p>
+                  {isEditing && (
+                    <p className="text-sm text-gray-500">
+                      "{getTrans(editingPage!.title_translations, 1).label}" хуудсыг засварлаж байна
+                    </p>
+                  )}
                 </div>
               </div>
               {isEditing && (
                 <Button onClick={resetForm} variant="secondary" className="hover:bg-red-50 hover:text-red-600 hover:border-red-200">
-                  <span>Болих</span>
+                  Болих
                 </Button>
               )}
             </div>
@@ -231,30 +249,29 @@ export default function PagesManager() {
 
           <div className="p-6">
             <form onSubmit={handleSubmit} className="space-y-8">
-              {/* URL Slug Section */}
+
               <div className="bg-gradient-to-r from-teal-50/50 to-teal-50/30 rounded-xl p-6 border border-teal-100">
                 <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                   <LinkIcon className="h-4 w-4 text-teal-500" />
-                  URL Хаяг (Slug)
+                  URL Хаяг
                 </label>
                 <input
                   type="text"
-                  value={formData.slug}
-                  onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                  value={formData.url}
+                  onChange={e => upd({ url: e.target.value })}
                   required
-                  placeholder="example-page"
+                  placeholder="/about-us"
                   className="w-full px-4 py-3 border border-teal-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
                 />
-                {formData.slug && (
+                {formData.url && (
                   <div className="mt-3 flex items-center gap-3">
                     <code className="flex-1 bg-white text-teal-700 px-4 py-2.5 rounded-lg font-mono text-sm border border-teal-100">
-                      /pages/{formData.slug}
+                      {formData.url}
                     </code>
                     <button
                       type="button"
-                      onClick={() => copyToClipboard(`${window.location.origin}/pages/${formData.slug}`)}
+                      onClick={() => copyToClipboard(`${window.location.origin}${formData.url}`)}
                       className="p-2.5 bg-teal-100 text-teal-600 rounded-lg hover:bg-teal-200 transition-colors"
-                      title="Хаягийг хуулах"
                     >
                       <LinkIcon className="h-4 w-4" />
                     </button>
@@ -262,7 +279,6 @@ export default function PagesManager() {
                 )}
               </div>
 
-              {/* Bilingual Content Fields */}
               <div className="border border-gray-200 rounded-xl overflow-hidden">
                 <div className="bg-gradient-to-r from-teal-50 to-blue-50 px-6 py-4 border-b border-gray-200">
                   <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
@@ -277,13 +293,12 @@ export default function PagesManager() {
                   <div className="space-y-4">
                     <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
                       <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                        <span className="text-base">🇲🇳</span>
-                        Гарчиг (Монгол)
+                        <span>🇲🇳</span> Гарчиг (Монгол)
                       </label>
                       <input
                         type="text"
                         value={formData.title_mn}
-                        onChange={(e) => setFormData({ ...formData, title_mn: e.target.value })}
+                        onChange={e => upd({ title_mn: e.target.value })}
                         required
                         placeholder="Хуудасны гарчиг"
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
@@ -291,13 +306,12 @@ export default function PagesManager() {
                     </div>
                     <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-200">
                       <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                        <span className="text-base">🇺🇸</span>
-                        Title (English)
+                        <span>🇺🇸</span> Title (English)
                       </label>
                       <input
                         type="text"
                         value={formData.title_en}
-                        onChange={(e) => setFormData({ ...formData, title_en: e.target.value })}
+                        onChange={e => upd({ title_en: e.target.value })}
                         required
                         placeholder="Page title"
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
@@ -311,336 +325,178 @@ export default function PagesManager() {
                       <SparklesIcon className="h-5 w-5 text-teal-500" />
                       Гарчиг тохиргоо
                     </h3>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium text-gray-800">Гарчиг өнгө</label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="color"
-                            value={formData.title_color}
-                            onChange={(e) => setFormData({ ...formData, title_color: e.target.value })}
-                            className="h-10 w-16 rounded border border-gray-200 bg-white cursor-pointer"
-                          />
-                          <span className="text-sm text-gray-600">{formData.title_color}</span>
-                        </div>
+                        <label className="text-sm font-medium text-gray-800">Font</label>
+                        <input
+                          type="text"
+                          value={formData.title_font}
+                          onChange={e => upd({ title_font: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                          placeholder="Arial"
+                        />
                       </div>
                       <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium text-gray-800">Гарчиг хэмжээ (px)</label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="range"
-                            min={18}
-                            max={40}
-                            step={1}
-                            value={formData.title_size}
-                            onChange={(e) => setFormData({ ...formData, title_size: Number(e.target.value) })}
-                            className="flex-1"
-                          />
-                          <input
-                            type="number"
-                            min={18}
-                            max={40}
-                            value={formData.title_size}
-                            onChange={(e) => setFormData({ ...formData, title_size: Number(e.target.value) || 28 })}
-                            className="w-20 rounded border border-gray-200 px-2 py-2 text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-gray-800">Гарчиг фонтын жин</label>
-                        <select
-                          value={formData.title_weight}
-                          onChange={(e) => setFormData({ ...formData, title_weight: e.target.value })}
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                        >
-                          <option value="400">Regular</option>
-                          <option value="500">Medium</option>
-                          <option value="600">Semibold</option>
-                          <option value="700">Bold</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-col gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-gray-800">Гарчиг фонт (Font family)</label>
+                        <label className="text-sm font-medium text-gray-800">Font family</label>
                         <select
                           value={formData.title_family}
-                          onChange={(e) => setFormData({ ...formData, title_family: e.target.value })}
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          onChange={e => upd({ title_family: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                         >
-                          <option value="Inter, system-ui, -apple-system, sans-serif">Inter / System sans</option>
-                          <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Segoe UI</option>
-                          <option value="'Helvetica Neue', Arial, sans-serif">Helvetica / Arial</option>
-                          <option value="'Georgia', serif">Georgia (Serif)</option>
-                          <option value="'Times New Roman', serif">Times New Roman (Serif)</option>
-                          <option value="'Roboto Mono', 'SFMono-Regular', Menlo, Consolas, monospace">Mono</option>
+                          <option value="sans-serif">Sans-serif</option>
+                          <option value="serif">Serif</option>
+                          <option value="monospace">Monospace</option>
                         </select>
                       </div>
-                      <div className="md:col-span-2 flex items-center justify-between gap-3 text-xs text-gray-500">
-                        <div className="inline-flex items-center gap-2">
-                          <span 
-                            className="px-3 py-2 rounded border border-gray-200 bg-white text-lg font-semibold"
-                            style={{
-                              color: formData.title_color || '#1F2937',
-                              fontSize: `${Math.min((formData.title_size || 28) + 10, 48)}px`,
-                              fontWeight: formData.title_weight || '600',
-                              fontFamily: formData.title_family || 'Inter, system-ui, -apple-system, sans-serif'
-                            }}
-                          >
-                            A
-                          </span>
-                          <span>Өнгө/жин/хэмжээг урьдчилан харах</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, title_family: 'Inter, system-ui, -apple-system, sans-serif' })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Sans
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, title_family: "'Georgia', serif" })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Serif
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, title_family: "'Roboto Mono', 'SFMono-Regular', Menlo, Consolas, monospace" })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Mono
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ 
-                              ...formData, 
-                              title_color: '#1F2937',
-                              title_size: 28,
-                              title_weight: '600',
-                              title_family: 'Inter, system-ui, -apple-system, sans-serif'
-                            })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Анхны утга
-                          </button>
-                        </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium text-gray-800">Жин (weight)</label>
+                        <select
+                          value={formData.title_weight}
+                          onChange={e => upd({ title_weight: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="bold">Bold</option>
+                          <option value="600">Semibold (600)</option>
+                          <option value="700">Bold (700)</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium text-gray-800">Хэмжээ (size)</label>
+                        <input
+                          type="text"
+                          value={formData.title_size}
+                          onChange={e => upd({ title_size: e.target.value })}
+                          placeholder="32px"
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
                       </div>
                     </div>
-
-                    {/* Title Preview */}
-                    <div className="mt-6 p-4 border border-gray-200 rounded-xl bg-white">
-                      <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-semibold">Урьдчилан харах</p>
-                      <div 
-                        className="p-4 rounded-lg border border-gray-200 bg-gray-50"
-                        style={{
-                          color: formData.title_color || '#1F2937',
-                          fontSize: `${formData.title_size || 28}px`,
-                          fontWeight: formData.title_weight || '600',
-                          fontFamily: formData.title_family || 'Inter, system-ui, -apple-system, sans-serif',
-                          lineHeight: '1.3'
-                        }}
-                      >
-                        Энэ бол таны гарчигны жишээ
+                    {/* Title preview */}
+                    <div className="mt-4 p-4 border border-gray-200 rounded-xl bg-white">
+                      <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-semibold">Урьдчилан харах</p>
+                      <div style={{
+                        fontFamily: `${formData.title_font}, ${formData.title_family}`,
+                        fontWeight: formData.title_weight,
+                        fontSize: formData.title_size,
+                      }}>
+                        {formData.title_mn || 'Гарчигны жишээ'}
                       </div>
                     </div>
                   </div>
 
-                  {/* Content */}
+                  {/* Descriptions */}
                   <div className="space-y-4">
                     <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
                       <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                        <span className="text-base">🇲🇳</span>
-                        Агуулга (Монгол)
+                        <span>🇲🇳</span> Агуулга (Монгол)
                       </label>
                       <textarea
-                        value={formData.content_mn}
-                        onChange={(e) => setFormData({ ...formData, content_mn: e.target.value })}
+                        value={formData.description_mn}
+                        onChange={e => upd({ description_mn: e.target.value })}
                         required
-                        rows={8}
+                        rows={6}
                         placeholder="Хуудасны агуулга..."
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none"
                       />
                     </div>
                     <div className="bg-gray-50/50 rounded-xl p-4 border border-gray-200">
                       <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                        <span className="text-base">🇺🇸</span>
-                        Content (English)
+                        <span>🇺🇸</span> Content (English)
                       </label>
                       <textarea
-                        value={formData.content_en}
-                        onChange={(e) => setFormData({ ...formData, content_en: e.target.value })}
+                        value={formData.description_en}
+                        onChange={e => upd({ description_en: e.target.value })}
                         required
-                        rows={8}
+                        rows={6}
                         placeholder="Page content..."
                         className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 resize-none"
                       />
                     </div>
                   </div>
 
-                  {/* Content Styling */}
+                  {/* Description Styling */}
                   <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
                     <h3 className="text-base font-semibold text-gray-900 mb-6 flex items-center gap-2">
                       <SparklesIcon className="h-5 w-5 text-amber-500" />
                       Агуулга тохиргоо
                     </h3>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium text-gray-800">Агуулга өнгө</label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="color"
-                            value={formData.content_color}
-                            onChange={(e) => setFormData({ ...formData, content_color: e.target.value })}
-                            className="h-10 w-16 rounded border border-gray-200 bg-white cursor-pointer"
-                          />
-                          <span className="text-sm text-gray-600">{formData.content_color}</span>
-                        </div>
+                        <label className="text-sm font-medium text-gray-800">Font</label>
+                        <input
+                          type="text"
+                          value={formData.desc_font}
+                          onChange={e => upd({ desc_font: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                          placeholder="Arial"
+                        />
                       </div>
                       <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium text-gray-800">Агуулга хэмжээ (px)</label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="range"
-                            min={14}
-                            max={28}
-                            step={1}
-                            value={formData.content_size}
-                            onChange={(e) => setFormData({ ...formData, content_size: Number(e.target.value) })}
-                            className="flex-1"
-                          />
-                          <input
-                            type="number"
-                            min={14}
-                            max={28}
-                            value={formData.content_size}
-                            onChange={(e) => setFormData({ ...formData, content_size: Number(e.target.value) || 16 })}
-                            className="w-20 rounded border border-gray-200 px-2 py-2 text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-gray-800">Агуулга фонтын жин</label>
+                        <label className="text-sm font-medium text-gray-800">Font family</label>
                         <select
-                          value={formData.content_weight}
-                          onChange={(e) => setFormData({ ...formData, content_weight: e.target.value })}
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          value={formData.desc_family}
+                          onChange={e => upd({ desc_family: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                         >
-                          <option value="400">Regular</option>
-                          <option value="500">Medium</option>
-                          <option value="600">Semibold</option>
-                          <option value="700">Bold</option>
+                          <option value="sans-serif">Sans-serif</option>
+                          <option value="serif">Serif</option>
+                          <option value="monospace">Monospace</option>
                         </select>
                       </div>
-                      <div className="flex flex-col gap-2 md:col-span-2">
-                        <label className="text-sm font-medium text-gray-800">Агуулга фонт (Font family)</label>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium text-gray-800">Жин (weight)</label>
                         <select
-                          value={formData.content_family}
-                          onChange={(e) => setFormData({ ...formData, content_family: e.target.value })}
-                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          value={formData.desc_weight}
+                          onChange={e => upd({ desc_weight: e.target.value })}
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                         >
-                          <option value="Inter, system-ui, -apple-system, sans-serif">Inter / System sans</option>
-                          <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Segoe UI</option>
-                          <option value="'Helvetica Neue', Arial, sans-serif">Helvetica / Arial</option>
-                          <option value="'Georgia', serif">Georgia (Serif)</option>
-                          <option value="'Times New Roman', serif">Times New Roman (Serif)</option>
-                          <option value="'Roboto Mono', 'SFMono-Regular', Menlo, Consolas, monospace">Mono</option>
+                          <option value="normal">Normal</option>
+                          <option value="bold">Bold</option>
+                          <option value="600">Semibold (600)</option>
                         </select>
                       </div>
-                      <div className="md:col-span-2 flex items-center justify-between gap-3 text-xs text-gray-500">
-                        <div className="inline-flex items-center gap-2">
-                          <span 
-                            className="px-3 py-2 rounded border border-gray-200 bg-white text-lg font-semibold"
-                            style={{
-                              color: formData.content_color || '#374151',
-                              fontSize: `${Math.min((formData.content_size || 16) + 8, 40)}px`,
-                              fontWeight: formData.content_weight || '400',
-                              fontFamily: formData.content_family || 'Inter, system-ui, -apple-system, sans-serif'
-                            }}
-                          >
-                            A
-                          </span>
-                          <span>Өнгө/жин/хэмжээг урьдчилан харах</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, content_family: 'Inter, system-ui, -apple-system, sans-serif' })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Sans
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, content_family: "'Georgia', serif" })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Serif
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, content_family: "'Roboto Mono', 'SFMono-Regular', Menlo, Consolas, monospace" })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Mono
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ 
-                              ...formData, 
-                              content_color: '#374151',
-                              content_size: 16,
-                              content_weight: '400',
-                              content_family: 'Inter, system-ui, -apple-system, sans-serif'
-                            })}
-                            className="px-3 py-1 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs"
-                          >
-                            Анхны утга
-                          </button>
-                        </div>
+                      <div className="flex flex-col gap-2">
+                        <label className="text-sm font-medium text-gray-800">Хэмжээ (size)</label>
+                        <input
+                          type="text"
+                          value={formData.desc_size}
+                          onChange={e => upd({ desc_size: e.target.value })}
+                          placeholder="16px"
+                          className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
                       </div>
                     </div>
-
-                    {/* Content Preview */}
-                    <div className="mt-6 p-4 border border-gray-200 rounded-xl bg-white">
-                      <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-semibold">Урьдчилан харах</p>
-                      <div 
-                        className="p-4 rounded-lg border border-gray-200 bg-gray-50 leading-relaxed"
-                        style={{
-                          color: formData.content_color || '#374151',
-                          fontSize: `${formData.content_size || 16}px`,
-                          fontWeight: formData.content_weight || '400',
-                          fontFamily: formData.content_family || 'Inter, system-ui, -apple-system, sans-serif'
-                        }}
-                      >
-                        Энэ бол таны агуулгын жишээ текст юм. Үзэглэгч текст өнгө, жин, хэмжээг урьдчилан харах боломжтой.
+                    {/* Desc preview */}
+                    <div className="mt-4 p-4 border border-gray-200 rounded-xl bg-white">
+                      <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide font-semibold">Урьдчилан харах</p>
+                      <div style={{
+                        fontFamily: `${formData.desc_font}, ${formData.desc_family}`,
+                        fontWeight: formData.desc_weight,
+                        fontSize: formData.desc_size,
+                      }}>
+                        {formData.description_mn || 'Агуулгын жишээ текст...'}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Feature Image */}
+              {/* Image */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
                   <PhotoIcon className="h-4 w-4 text-teal-500" />
-                  Хуудасны зураг (Feature Image)
+                  Зураг (Image URL)
                 </label>
                 <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 hover:border-teal-400 transition-colors bg-gray-50/50">
-                  {formData.image_url ? (
+                  {formData.image ? (
                     <div className="space-y-4">
                       <div className="relative group">
-                        <img
-                          src={formData.image_url}
-                          alt="Preview"
-                          className="w-full h-64 object-cover rounded-xl shadow-lg"
-                        />
+                        <img src={formData.image} alt="Preview" className="w-full h-64 object-cover rounded-xl shadow-lg" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
                           <button
                             type="button"
-                            onClick={() => setFormData({ ...formData, image_url: '' })}
+                            onClick={() => upd({ image: '' })}
                             className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                           >
                             <TrashIcon className="h-5 w-5" />
@@ -648,11 +504,11 @@ export default function PagesManager() {
                         </div>
                       </div>
                       <input
-                        type="url"
-                        value={formData.image_url}
-                        onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                        placeholder="Зургийн URL хаяг"
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                        type="text"
+                        value={formData.image}
+                        onChange={e => upd({ image: e.target.value })}
+                        placeholder="Зургийн URL эсвэл зам"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500"
                       />
                     </div>
                   ) : (
@@ -661,26 +517,22 @@ export default function PagesManager() {
                         <PhotoIcon className="h-8 w-8 text-teal-500" />
                       </div>
                       <input
-                        type="url"
-                        value={formData.image_url}
-                        onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                        placeholder="Зургийн URL хаяг оруулах"
-                        className="w-full max-w-md mx-auto px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-teal-500 mb-4"
+                        type="text"
+                        value={formData.image}
+                        onChange={e => upd({ image: e.target.value })}
+                        placeholder="Зургийн URL эсвэл зам (жнь: /images/about.jpg)"
+                        className="w-full max-w-md mx-auto px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-teal-500 mb-4"
                       />
-                      <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
-                        <span>эсвэл</span>
-                      </div>
+                      <div className="text-sm text-gray-400">эсвэл</div>
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
+                        onChange={e => {
+                          const file = e.target.files?.[0]
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              setFormData({ ...formData, image_url: event.target?.result as string });
-                            };
-                            reader.readAsDataURL(file);
+                            const reader = new FileReader()
+                            reader.onload = ev => upd({ image: ev.target?.result as string })
+                            reader.readAsDataURL(file)
                           }
                         }}
                         className="hidden"
@@ -698,41 +550,59 @@ export default function PagesManager() {
                 </div>
               </div>
 
-              {/* Published Status */}
+              {/* Active toggle */}
               <div className="flex items-center justify-between p-5 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex items-center gap-3">
-                  {formData.is_published ? (
+                  {formData.active ? (
                     <CheckCircleIcon className="h-6 w-6 text-emerald-500" />
                   ) : (
                     <ClockIcon className="h-6 w-6 text-amber-500" />
                   )}
                   <div>
                     <p className="font-medium text-gray-900">
-                      {formData.is_published ? 'Нийтлэгдсэн' : 'Ноорог'}
+                      {formData.active ? 'Идэвхтэй' : 'Идэвхгүй'}
                     </p>
                     <p className="text-sm text-gray-500">
-                      {formData.is_published ? 'Хуудас вэбсайтад харагдаж байна' : 'Хуудас нууцлагдсан байна'}
+                      {formData.active ? 'Хуудас вэбсайтад харагдаж байна' : 'Хуудас нууцлагдсан байна'}
                     </p>
                   </div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.is_published}
-                    onChange={(e) => setFormData({ ...formData, is_published: e.target.checked })}
+                    checked={formData.active}
+                    onChange={e => upd({ active: e.target.checked })}
                     className="sr-only peer"
                   />
-                  <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-teal-600"></div>
+                  <div className="w-14 h-7 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-teal-600" />
                 </label>
               </div>
 
               {/* Actions */}
               <div className="flex justify-between items-center pt-6 border-t border-gray-200">
-                <Button 
-                  type="button" 
-                  onClick={handlePreview} 
+                <Button
+                  type="button"
+                  onClick={() => {
+                    // Build a temp ApiPage for preview
+                    const tmp: ApiPage = {
+                      id: editingPage?.id || 0,
+                      url: formData.url,
+                      active: formData.active,
+                      image: formData.image || null,
+                      title_translations: [
+                        { language: 1, label: formData.title_mn, font: formData.title_font, family: formData.title_family, weight: formData.title_weight, size: formData.title_size },
+                        { language: 2, label: formData.title_en, font: formData.title_font, family: formData.title_family, weight: formData.title_weight, size: formData.title_size },
+                      ],
+                      description_translations: [
+                        { language: 1, label: formData.description_mn, font: formData.desc_font, family: formData.desc_family, weight: formData.desc_weight, size: formData.desc_size },
+                        { language: 2, label: formData.description_en, font: formData.desc_font, family: formData.desc_family, weight: formData.desc_weight, size: formData.desc_size },
+                      ],
+                    }
+                    setPreviewPage(tmp)
+                    setShowPreview(true)
+                  }}
                   variant="secondary"
-                  disabled={!formData.title_mn || !formData.content_mn || saving}
+                  disabled={!formData.title_mn || !formData.description_mn || saving}
                   className="flex items-center gap-2"
                 >
                   <EyeIcon className="h-4 w-4" />
@@ -744,26 +614,16 @@ export default function PagesManager() {
                       Болих
                     </Button>
                   )}
-                  <Button 
-                    type="submit"
-                    disabled={saving}
-                    className="bg-teal-600 hover:bg-teal-700 text-white px-6"
-                  >
+                  <Button type="submit" disabled={saving} className="bg-teal-600 hover:bg-teal-700 text-white px-6">
                     {saving ? (
                       <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
                         Хадгалж байна...
                       </div>
                     ) : isEditing ? (
-                      <>
-                        <PencilIcon className="h-4 w-4 mr-2" />
-                        Хадгалах
-                      </>
+                      <><PencilIcon className="h-4 w-4 mr-2" />Хадгалах</>
                     ) : (
-                      <>
-                        <PlusIcon className="h-4 w-4 mr-2" />
-                        Үүсгэх
-                      </>
+                      <><PlusIcon className="h-4 w-4 mr-2" />Үүсгэх</>
                     )}
                   </Button>
                 </div>
@@ -772,159 +632,69 @@ export default function PagesManager() {
           </div>
         </div>
 
-        {/* Preview Modal - Popup хэлбэрээр */}
-        <Modal
-          isOpen={showPreview && previewData !== null}
-          onClose={() => setShowPreview(false)}
-          title="Хуудас урьдчилан үзэх"
-          size="xl"
-        >
-          {previewData && (
-            <div className="space-y-6">
-              {/* URL Badge */}
-              <div className="flex justify-center">
-                <div className="inline-flex items-center gap-2 bg-teal-50 text-teal-700 px-4 py-2 rounded-full text-sm">
-                  <LinkIcon className="h-4 w-4" />
-                  /pages/{previewData.slug}
-                </div>
-              </div>
-
-              {/* Feature Image */}
-              {previewData.image_url && (
-                <div className="relative rounded-2xl overflow-hidden shadow-lg">
-                  <img
-                    src={previewData.image_url}
-                    alt={previewData.title_mn}
-                    className="w-full h-48 md:h-64 object-cover"
-                  />
-                </div>
-              )}
-
-              {/* Mongolian Content Card */}
-              <div 
-                className="rounded-2xl border border-blue-200 overflow-hidden"
-              >
-                {/* Mongolian Header */}
-                <div className="px-6 py-3 border-b border-blue-100 bg-blue-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🇲🇳</span>
-                    <span className="text-sm font-semibold text-gray-700">Монгол</span>
+        {/* Preview Modal */}
+        <Modal isOpen={showPreview && previewPage !== null} onClose={() => setShowPreview(false)} title="Хуудас урьдчилан үзэх" size="xl">
+          {previewPage && (() => {
+            const tmn = getTrans(previewPage.title_translations, 1)
+            const ten = getTrans(previewPage.title_translations, 2)
+            const dmn = getTrans(previewPage.description_translations, 1)
+            const den = getTrans(previewPage.description_translations, 2)
+            const titleStyle = { fontFamily: `${tmn.font || 'Arial'}, ${tmn.family || 'sans-serif'}`, fontWeight: tmn.weight || 'bold', fontSize: tmn.size || '32px' }
+            const descStyle  = { fontFamily: `${dmn.font || 'Arial'}, ${dmn.family || 'sans-serif'}`, fontWeight: dmn.weight || 'normal', fontSize: dmn.size || '16px' }
+            return (
+              <div className="space-y-6">
+                <div className="flex justify-center">
+                  <div className="inline-flex items-center gap-2 bg-teal-50 text-teal-700 px-4 py-2 rounded-full text-sm">
+                    <LinkIcon className="h-4 w-4" />{previewPage.url}
                   </div>
                 </div>
-                
-                {/* Mongolian Title */}
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <h2 
-                    style={{
-                      color: previewData.title_color || '#1F2937',
-                      fontSize: `${previewData.title_size || 28}px`,
-                      fontWeight: previewData.title_weight || '600',
-                      fontFamily: previewData.title_family || 'Inter, system-ui, -apple-system, sans-serif'
-                    }}
-                  >
-                    {previewData.title_mn}
-                  </h2>
-                </div>
-
-                {/* Mongolian Content Body */}
-                <div className="px-6 py-6">
-                  <div 
-                    className="whitespace-pre-wrap leading-relaxed"
-                    style={{
-                      color: previewData.content_color || '#374151',
-                      fontSize: `${previewData.content_size || 16}px`,
-                      fontWeight: previewData.content_weight || '400',
-                      fontFamily: previewData.content_family || 'Inter, system-ui, -apple-system, sans-serif'
-                    }}
-                  >
-                    {previewData.content_mn}
+                {previewPage.image && (
+                  <img src={previewPage.image} alt="" className="w-full h-48 md:h-64 object-cover rounded-2xl shadow-lg" />
+                )}
+                {/* MN */}
+                <div className="rounded-2xl border border-blue-200 overflow-hidden">
+                  <div className="px-6 py-3 border-b border-blue-100 bg-blue-50 flex items-center gap-2">
+                    <span>🇲🇳</span><span className="text-sm font-semibold text-gray-700">Монгол</span>
+                  </div>
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 style={titleStyle}>{tmn.label}</h2>
+                  </div>
+                  <div className="px-6 py-6">
+                    <div className="whitespace-pre-wrap leading-relaxed" style={descStyle}>{dmn.label}</div>
                   </div>
                 </div>
-              </div>
-
-              {/* English Content Card */}
-              <div 
-                className="rounded-2xl border border-gray-200 overflow-hidden"
-              >
-                {/* English Header */}
-                <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">🇺🇸</span>
-                    <span className="text-sm font-semibold text-gray-700">English</span>
+                {/* EN */}
+                <div className="rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+                    <span>🇺🇸</span><span className="text-sm font-semibold text-gray-700">English</span>
                   </div>
-                </div>
-                
-                {/* English Title */}
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <h2 
-                    style={{
-                      color: previewData.title_color || '#1F2937',
-                      fontSize: `${previewData.title_size || 28}px`,
-                      fontWeight: previewData.title_weight || '600',
-                      fontFamily: previewData.title_family || 'Inter, system-ui, -apple-system, sans-serif'
-                    }}
-                  >
-                    {previewData.title_en}
-                  </h2>
-                </div>
-
-                {/* English Content Body */}
-                <div className="px-6 py-6">
-                  <div 
-                    className="whitespace-pre-wrap leading-relaxed"
-                    style={{
-                      color: previewData.content_color || '#374151',
-                      fontSize: `${previewData.content_size || 16}px`,
-                      fontWeight: previewData.content_weight || '400',
-                      fontFamily: previewData.content_family || 'Inter, system-ui, -apple-system, sans-serif'
-                    }}
-                  >
-                    {previewData.content_en}
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 style={titleStyle}>{ten.label}</h2>
                   </div>
-                </div>
-
-                {/* Footer with Date and Status */}
-                <div className="px-6 py-4 border-t border-gray-100 bg-gray-50">
-                  <div className="flex items-center justify-between text-sm text-gray-500">
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="h-4 w-4" />
-                      <span>
-                        {new Date(previewData.updated_at).toLocaleDateString('mn-MN', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        })}
-                      </span>
-                    </div>
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                      previewData.is_published 
-                        ? 'bg-emerald-100 text-emerald-700' 
-                        : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      {previewData.is_published ? 'Нийтлэгдсэн' : 'Ноорог'}
+                  <div className="px-6 py-6">
+                    <div className="whitespace-pre-wrap leading-relaxed" style={descStyle}>{den.label}</div>
+                  </div>
+                  <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-sm text-gray-500">
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${previewPage.active ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {previewPage.active ? 'Идэвхтэй' : 'Идэвхгүй'}
                     </span>
                   </div>
                 </div>
+                <div className="flex justify-end pt-4 border-t border-gray-100">
+                  <button onClick={() => setShowPreview(false)} className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium">
+                    Хаах
+                  </button>
+                </div>
               </div>
-
-              {/* Close Button */}
-              <div className="flex justify-end pt-4 border-t border-gray-100">
-                <button
-                  onClick={() => setShowPreview(false)}
-                  className="px-6 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-                >
-                  Хаах
-                </button>
-              </div>
-            </div>
-          )}
+            )
+          })()}
         </Modal>
 
         {/* Pages List */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div 
+          <div
             className="px-6 py-5 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
-            onClick={() => setShowPagesList(!showPagesList)}
+            onClick={() => setShowList(!showList)}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -941,151 +711,116 @@ export default function PagesManager() {
               <div className="flex items-center gap-3">
                 <div className="flex gap-2">
                   <span className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-sm font-medium">
-                    {pages.filter(p => p.is_published).length} нийтлэгдсэн
+                    {pages.filter(p => p.active).length} идэвхтэй
                   </span>
                   <span className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-sm font-medium">
-                    {pages.filter(p => !p.is_published).length} ноорог
+                    {pages.filter(p => !p.active).length} идэвхгүй
                   </span>
                 </div>
-                <button
-                  className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
-                  title={showPagesList ? 'Хураах' : 'Дэлгэх'}
-                >
-                  {showPagesList ? (
-                    <ChevronUpIcon className="h-5 w-5 text-gray-500" />
-                  ) : (
-                    <ChevronDownIcon className="h-5 w-5 text-gray-500" />
-                  )}
+                <button className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+                  {showList ? <ChevronUpIcon className="h-5 w-5 text-gray-500" /> : <ChevronDownIcon className="h-5 w-5 text-gray-500" />}
                 </button>
               </div>
             </div>
           </div>
 
-          {showPagesList && (
-          <div className="p-6">
-            {loading ? (
-              <div className="text-center py-16">
-                <div className="animate-spin rounded-full h-10 w-10 border-3 border-teal-600 border-t-transparent mx-auto mb-4"></div>
-                <p className="text-teal-600">Хуудсуудыг уншиж байна...</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {pages.map((page) => (
-                  <div
-                    key={page.id}
-                    className="group border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-md transition-all duration-200 bg-white"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 flex gap-4">
-                        {/* Thumbnail */}
-                        <div className="flex-shrink-0">
-                          {page.image_url ? (
-                            <img
-                              src={page.image_url}
-                              alt={page.title_mn}
-                              className="w-20 h-20 rounded-xl object-cover shadow-sm"
-                            />
-                          ) : (
-                            <div className={`w-20 h-20 rounded-xl flex items-center justify-center ${
-                              page.is_published ? 'bg-gradient-to-br from-emerald-100 to-emerald-50' : 'bg-gradient-to-br from-amber-100 to-amber-50'
-                            }`}>
-                              <DocumentTextIcon className={`h-8 w-8 ${
-                                page.is_published ? 'text-emerald-500' : 'text-amber-500'
-                              }`} />
+          {showList && (
+            <div className="p-6">
+              {loading ? (
+                <div className="text-center py-16">
+                  <div className="animate-spin rounded-full h-10 w-10 border-3 border-teal-600 border-t-transparent mx-auto mb-4" />
+                  <p className="text-teal-600">Хуудсуудыг уншиж байна...</p>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {pages.map(page => {
+                    const tmn = getTrans(page.title_translations, 1)
+                    const ten = getTrans(page.title_translations, 2)
+                    return (
+                      <div key={page.id} className="group border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-md transition-all duration-200 bg-white">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 flex gap-4">
+                            {/* Thumbnail */}
+                            <div className="flex-shrink-0">
+                              {page.image ? (
+                                <img src={page.image} alt={tmn.label} className="w-20 h-20 rounded-xl object-cover shadow-sm" />
+                              ) : (
+                                <div className={`w-20 h-20 rounded-xl flex items-center justify-center ${page.active ? 'bg-gradient-to-br from-emerald-100 to-emerald-50' : 'bg-gradient-to-br from-amber-100 to-amber-50'}`}>
+                                  <DocumentTextIcon className={`h-8 w-8 ${page.active ? 'text-emerald-500' : 'text-amber-500'}`} />
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        
-                        {/* Content */}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-base font-semibold text-gray-900 truncate">
-                              {page.title_mn}
-                            </h3>
-                            <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${
-                              page.is_published 
-                                ? 'bg-emerald-100 text-emerald-700' 
-                                : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {page.is_published ? 'НИЙТЛЭГДСЭН' : 'НООРОГ'}
-                            </span>
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-3 mb-2">
+                                <h3 className="text-base font-semibold text-gray-900 truncate">{tmn.label}</h3>
+                                <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${page.active ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {page.active ? 'ИДЭВХТЭЙ' : 'ИДЭВХГҮЙ'}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 mb-2">{ten.label}</p>
+                              <button
+                                onClick={() => copyToClipboard(`${window.location.origin}${page.url}`)}
+                                className="flex items-center gap-1.5 text-xs text-teal-600 hover:text-teal-700 font-medium mb-2"
+                              >
+                                <LinkIcon className="h-3.5 w-3.5" />{page.url}
+                              </button>
+                              <p className="text-sm text-gray-500 line-clamp-2">
+                                {getTrans(page.description_translations, 1).label}
+                              </p>
+                            </div>
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">{page.title_en}</p>
-                          
-                          <div className="flex items-center gap-4 text-xs text-gray-500">
+                          {/* Actions */}
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={() => copyToClipboard(`${window.location.origin}/pages/${page.slug}`)}
-                              className="flex items-center gap-1.5 text-teal-600 hover:text-teal-700 font-medium"
+                              onClick={() => { setPreviewPage(page); setShowPreview(true) }}
+                              className="p-2.5 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
+                              title="Урьдчилан үзэх"
                             >
-                              <LinkIcon className="h-3.5 w-3.5" />
-                              /pages/{page.slug}
+                              <EyeIcon className="h-5 w-5" />
                             </button>
-                            <span className="flex items-center gap-1.5">
-                              <CalendarIcon className="h-3.5 w-3.5" />
-                              {new Date(page.created_at).toLocaleDateString('mn-MN')}
-                            </span>
+                            <button
+                              onClick={() => handleEdit(page)}
+                              className="p-2.5 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
+                              title="Засах"
+                            >
+                              <PencilIcon className="h-5 w-5" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(page.id)}
+                              className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                              title="Устгах"
+                            >
+                              <TrashIcon className="h-5 w-5" />
+                            </button>
                           </div>
-                          
-                          <p className="text-sm text-gray-500 line-clamp-2 mt-2">
-                            {page.content_mn}
-                          </p>
                         </div>
                       </div>
-                      
-                      {/* Actions */}
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => { setPreviewData(page); setShowPreview(true); }}
-                          className="p-2.5 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
-                          title="Урьдчилан үзэх"
-                        >
-                          <EyeIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(page)}
-                          className="p-2.5 text-gray-500 hover:text-teal-600 hover:bg-teal-50 rounded-xl transition-colors"
-                          title="Засах"
-                        >
-                          <PencilIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(page.id)}
-                          className="p-2.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                          title="Устгах"
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    )
+                  })}
 
-                {!loading && pages.length === 0 && (
-                  <div className="text-center py-20 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
-                    <div className="w-20 h-20 bg-gradient-to-br from-teal-100 to-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                      <DocumentTextIcon className="h-10 w-10 text-teal-500" />
+                  {!loading && pages.length === 0 && (
+                    <div className="text-center py-20 border-2 border-dashed border-gray-200 rounded-2xl bg-gray-50/50">
+                      <div className="w-20 h-20 bg-gradient-to-br from-teal-100 to-teal-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                        <DocumentTextIcon className="h-10 w-10 text-teal-500" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-gray-900 mb-2">Хуудас байхгүй байна</h3>
+                      <p className="text-gray-600 mb-8">Эхний хуудсаа үүсгээд эхэлцгээе!</p>
+                      <Button
+                        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                        className="bg-teal-600 hover:bg-teal-700 text-white"
+                      >
+                        <PlusIcon className="h-5 w-5 mr-2" />
+                        Шинэ хуудас үүсгэх
+                      </Button>
                     </div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                      Хуудас байхгүй байна
-                    </h3>
-                    <p className="text-gray-600 mb-8">
-                      Эхний хуудсаа үүсгээд эхэлцгээе!
-                    </p>
-                    <Button 
-                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      className="bg-teal-600 hover:bg-teal-700 text-white"
-                    >
-                      <PlusIcon className="h-5 w-5 mr-2" />
-                      Шинэ хуудас үүсгэх
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
     </AdminLayout>
-  );
+  )
 }

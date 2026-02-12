@@ -4,40 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Container from '@/components/Container';
 import Header from '@/components/Header';
-
-// Type definition - will be moved to types file when backend is ready
-interface PageData {
-  id: string;
-  slug: string;
-  title_mn: string;
-  title_en: string;
-  content_mn: string;
-  content_en: string;
-  meta_description_mn?: string;
-  meta_description_en?: string;
-  image_url?: string;
-  text_color?: string;
-  text_align?: 'left' | 'center' | 'right' | 'justify';
-  font_family?: string;
-  font_size?: 'small' | 'medium' | 'large' | 'extra-large';
-  background_color?: string;
-  is_published: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-// Backend-ready API integration
-const getPageBySlug = async (slug: string): Promise<PageData | null> => {
-  try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001'
-    const response = await fetch(`${apiUrl}/api/pages/${slug}/`)
-    if (!response.ok) return null
-    return await response.json()
-  } catch (error) {
-    console.error('Error fetching page:', error)
-    return null
-  }
-}
+import { useLanguage } from '@/contexts/LanguageContext';
+import { fetchPageBySlug, getTranslation, type PageData } from '@/lib/pagesApi';
 
 const styles = `
   @keyframes fadeIn {
@@ -75,34 +43,59 @@ const styles = `
 export default function DynamicPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const { language } = useLanguage(); // Use LanguageContext
   const [page, setPage] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Convert language context ('mn' | 'en') to language ID (1 | 2)
+  const currentLanguageId = language === 'mn' ? 1 : 2;
 
   useEffect(() => {
     if (!slug) return;
 
-    const fetchPage = async () => {
+    const loadPage = async () => {
       try {
-        // Fetch page from backend
-        const foundPage = await getPageBySlug(slug);
+        setLoading(true);
+        setError(null);
         
-        if (foundPage) {
-          setPage(foundPage);
-        } else {
-          setNotFound(true);
+        // Fetch from real API
+        const data = await fetchPageBySlug(slug);
+        
+        if (!data) {
+          setError('NOT_FOUND');
+          return;
         }
-      } catch (error) {
-        console.error('Error fetching page:', error);
-        setNotFound(true);
+        
+        // Check if page is active
+        if (!data.active) {
+          setError('INACTIVE');
+          return;
+        }
+        
+        setPage(data);
+      } catch (err) {
+        console.error('Error loading page:', err);
+        setError('NETWORK_ERROR');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchPage();
+    loadPage();
   }, [slug]);
 
+  // Copy link to clipboard
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      alert(language === 'mn' ? 'Линк хуулагдлаа!' : 'Link copied!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Loading state
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-teal-50/30">
@@ -114,15 +107,42 @@ export default function DynamicPage() {
               <div className="w-16 h-16 border-4 border-teal-100 rounded-full mx-auto mb-6"></div>
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-transparent border-t-teal-600 rounded-full animate-spin"></div>
             </div>
-            <p className="text-teal-600 font-medium">Уншиж байна...</p>
-            <p className="text-slate-400 text-sm mt-1">Түр хүлээнэ үү</p>
+            <p className="text-teal-600 font-medium">
+              {language === 'mn' ? 'Уншиж байна...' : 'Loading...'}
+            </p>
+            <p className="text-slate-400 text-sm mt-1">
+              {language === 'mn' ? 'Түр хүлээнэ үү' : 'Please wait'}
+            </p>
           </div>
         </div>
       </div>
     );
   }
 
-  if (notFound || !page) {
+  // Error states
+  if (error || !page) {
+    const errorMessages = {
+      NOT_FOUND: {
+        mn: { title: 'Хуудас олдсонгүй', message: 'Уучлаарай, таны хайсан хуудас олдсонгүй.' },
+        en: { title: 'Page Not Found', message: 'Sorry, the page you are looking for could not be found.' }
+      },
+      INACTIVE: {
+        mn: { title: 'Хуудас идэвхгүй', message: 'Энэ хуудас одоогоор идэвхгүй байна.' },
+        en: { title: 'Page Inactive', message: 'This page is currently inactive.' }
+      },
+      SERVER_ERROR: {
+        mn: { title: 'Серверийн алдаа', message: 'Уучлаарай, серверт алдаа гарлаа.' },
+        en: { title: 'Server Error', message: 'Sorry, a server error occurred.' }
+      },
+      NETWORK_ERROR: {
+        mn: { title: 'Сүлжээний алдаа', message: 'Сүлжээний холболт тасарсан байна.' },
+        en: { title: 'Network Error', message: 'Network connection failed.' }
+      }
+    };
+
+    const currentError = errorMessages[error as keyof typeof errorMessages] || errorMessages.NOT_FOUND;
+    const errorText = language === 'mn' ? currentError.mn : currentError.en;
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-red-50/30">
         <style dangerouslySetInnerHTML={{ __html: styles }} />
@@ -135,9 +155,9 @@ export default function DynamicPage() {
               </svg>
             </div>
             <h1 className="text-6xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 bg-clip-text text-transparent mb-4">404</h1>
-            <p className="text-xl text-slate-600 mb-4">Хуудас олдсонгүй</p>
+            <p className="text-xl text-slate-600 mb-4">{errorText.title}</p>
             <p className="text-slate-500 mb-10 max-w-md mx-auto">
-              Уучлаарай, таны хайсан хуудас олдсонгүй.
+              {errorText.message}
             </p>
             <a
               href="/"
@@ -146,13 +166,17 @@ export default function DynamicPage() {
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
               </svg>
-              
+              {language === 'mn' ? 'Нүүр хуудас руу буцах' : 'Back to Home'}
             </a>
           </div>
         </Container>
       </div>
     );
   }
+
+  // Get translations using current language from context
+  const title = getTranslation(page.title_translations, currentLanguageId);
+  const description = getTranslation(page.description_translations, currentLanguageId);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
@@ -162,12 +186,13 @@ export default function DynamicPage() {
       <main className="py-8 md:py-16 lg:py-20">
         <Container>
           <article className="max-w-3xl mx-auto relative">
-            {/* Back Button - Mobile: bottom fixed, Desktop: top left */}
+            {/* Back Button */}
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 md:absolute md:bottom-auto md:top-0 md:left-0 md:translate-x-0 animate-fade-in">
               <a
                 href="/"
                 className="inline-flex items-center justify-center w-12 h-12 bg-white/95 backdrop-blur-sm text-slate-700 rounded-full hover:bg-teal-50 hover:text-teal-600 hover:shadow-xl transition-all duration-300 group shadow-lg border border-slate-200/80 hover:border-teal-300/80"
-                title="Нүүр хуудас"
+                title={language === 'mn' ? 'Нүүр хуудас' : 'Home'}
+                aria-label={language === 'mn' ? 'Нүүр хуудас руу буцах' : 'Back to home'}
               >
                 <svg className="w-5 h-5 transition-transform group-hover:-translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -177,23 +202,33 @@ export default function DynamicPage() {
 
             {/* Hero Section */}
             <div className="mb-12 animate-fade-in md:pt-8">
-
               {/* Title Section */}
               <div className="text-center mb-8">
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 mb-4 leading-tight tracking-tight">
-                  {page.title_mn}
+                <h1 
+                  className="text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 mb-4 leading-tight tracking-tight"
+                  style={{
+                    fontFamily: title.family || 'system-ui',
+                    fontWeight: title.weight || 'bold',
+                  }}
+                >
+                  {title.label}
                 </h1>
                 <div className="h-1 w-16 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-full mx-auto"></div>
               </div>
 
               {/* Feature Image */}
-              {page.image_url && (
+              {page.image && (
                 <div className="relative rounded-2xl overflow-hidden shadow-xl animate-scale-in mb-12 group">
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900/20 via-transparent to-transparent z-10 group-hover:from-slate-900/30 transition-colors duration-300"></div>
                   <img
-                    src={page.image_url}
-                    alt={page.title_mn}
+                    src={page.image}
+                    alt={title.label}
                     className="w-full h-[280px] md:h-[380px] object-cover group-hover:scale-105 transition-transform duration-500"
+                    onError={(e) => {
+                      e.currentTarget.src = '/images/placeholder.jpg';
+                      e.currentTarget.onerror = null;
+                    }}
+                    loading="lazy"
                   />
                 </div>
               )}
@@ -201,33 +236,21 @@ export default function DynamicPage() {
 
             {/* Content Card */}
             <div 
-              className="rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden animate-fade-in-up hover:shadow-xl transition-shadow duration-500 backdrop-blur-sm"
-              style={{
-                backgroundColor: page.background_color ? page.background_color + 'F2' : '#FFFFFF'
-              }}
+              className="rounded-2xl shadow-lg border border-slate-200/50 overflow-hidden animate-fade-in-up hover:shadow-xl transition-shadow duration-500 backdrop-blur-sm bg-white"
             >
               {/* Content Body */}
               <div className="px-6 md:px-10 lg:px-12 py-10 md:py-14">
-                <div 
-                  className="prose prose-slate max-w-none"
-                  style={{
-                    color: page.text_color || '#1F2937',
-                    textAlign: page.text_align || 'left',
-                    fontFamily: page.font_family || 'system-ui',
-                  }}
-                >
-                  <div className="whitespace-pre-wrap animate-fade-in space-y-4"
+                <div className="prose prose-slate max-w-none">
+                  <div 
+                    className="whitespace-pre-wrap animate-fade-in space-y-4"
                     style={{
-                      fontSize: {
-                        'small': '15px',
-                        'medium': '17px', 
-                        'large': '20px',
-                        'extra-large': '24px'
-                      }[page.font_size || 'medium'],
+                      fontFamily: description.family || 'system-ui',
+                      fontSize: description.size || '17px',
+                      fontWeight: description.weight || 'normal',
                       lineHeight: '1.8'
                     }}
                   >
-                    {page.content_mn}
+                    {description.label}
                   </div>
                 </div>
               </div>
@@ -240,7 +263,7 @@ export default function DynamicPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                     <span className="font-medium">
-                      {new Date(page.updated_at).toLocaleDateString('mn-MN', {
+                      {language === 'mn' ? 'Шинэчлэгдсэн' : 'Updated'}: {new Date(page.updated_at).toLocaleDateString(language === 'mn' ? 'mn-MN' : 'en-US', {
                         year: 'numeric',
                         month: 'short',
                         day: 'numeric'
@@ -248,15 +271,13 @@ export default function DynamicPage() {
                     </span>
                   </div>
                   
-                  {/* Share Buttons */}
+                  {/* Share Button */}
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => {
-                        navigator.clipboard.writeText(window.location.href);
-                        alert('Линк хуулагдлаа!');
-                      }}
+                      onClick={handleCopyLink}
                       className="p-2 rounded-lg bg-slate-100/70 hover:bg-teal-100 text-slate-600 hover:text-teal-600 transition-all duration-300 hover:shadow-md"
-                      title="Линк хуулах"
+                      title={language === 'mn' ? "Линк хуулах" : "Copy link"}
+                      aria-label={language === 'mn' ? "Линк хуулах" : "Copy link"}
                     >
                       <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />

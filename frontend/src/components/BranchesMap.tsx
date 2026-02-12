@@ -2,20 +2,27 @@
 
 import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from "@react-google-maps/api";
 import { useEffect, useRef, useState } from "react";
+import { MapPin, Phone, Clock, Calendar } from "lucide-react";
 
-export interface Branch {
-  id: string
-  name: string
-  location: string
-  image?: string | null
-  area?: string | null
-  city?: string | null
-  district?: string | null
-  open?: string | null
-  time?: string | null
-  latitude: number | null
-  longitude: number | null
-  phones: { phone: string }[]
+interface Phone {
+  id: number;
+  phone: string;
+}
+
+interface Branch {
+  id: number;
+  name: string;
+  location: string;
+  image: string;
+  image_url: string;
+  area: string;
+  city: string;
+  district: string;
+  open: string;
+  time: string;
+  latitude: string;
+  longitude: string;
+  phones: Phone[];
 }
 
 type Props = {
@@ -29,13 +36,22 @@ const containerStyle = {
   height: "100%",
 };
 
-const getCustomMarkerIcon = () => {
+// Mongolian center as default
+const defaultCenter = {
+  lat: 47.9184,
+  lng: 106.9177,
+};
+
+const getCustomMarkerIcon = (isSelected: boolean) => {
   if (typeof window !== 'undefined' && (window as any).google) {
+    const color = isSelected ? '%2314B8A6' : '%2306B6D4'; // teal-600 : cyan-500
+    const size = isSelected ? 50 : 40;
+    
     return {
-      url: `data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 320 320' xmlns='http://www.w3.org/2000/svg' fill='none'%3E%3Cdefs%3E%3ClinearGradient id='headGrad2' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%23EAF2FF'%3E%3C/stop%3E%3Cstop offset='100%25' stop-color='%2393C5FD'%3E%3C/stop%3E%3C/linearGradient%3E%3Cfilter id='softShadow2' x='-35%25' y='-35%25' width='170%25' height='170%25'%3E%3CfeDropShadow dx='0' dy='6' stdDeviation='10' flood-color='%231E40AF' flood-opacity='0.28'%3E%3C/feDropShadow%3E%3C/filter%3E%3C/defs%3E%3Cg%3E%3CanimateTransform attributeName='transform' type='translate' values='0 0; 0 -6; 0 0' dur='2.4s' repeatCount='indefinite'%3E%3C/animateTransform%3E%3Cellipse cx='160' cy='160' rx='110' ry='100' fill='url(%23headGrad2)' filter='url(%23softShadow2)'%3E%3C/ellipse%3E%3Cellipse cx='160' cy='165' rx='70' ry='52' fill='%23020617'%3E%3C/ellipse%3E%3Cellipse cx='138' cy='160' rx='8' ry='10' fill='%2338BDF8'%3E%3Canimate attributeName='ry' values='10;10;2;10' keyTimes='0;0.6;0.65;1' dur='4s' repeatCount='indefinite'%3E%3C/animate%3E%3C/ellipse%3E%3Cellipse cx='182' cy='160' rx='8' ry='10' fill='%2338BDF8'%3E%3Canimate attributeName='ry' values='10;10;2;10' keyTimes='0;0.6;0.65;1' dur='4s' repeatCount='indefinite'%3E%3C/animate%3E%3C/ellipse%3E%3Cellipse cx='122' cy='178' rx='8' ry='5' fill='%23F472B6' opacity='0.9'%3E%3C/ellipse%3E%3Cellipse cx='198' cy='178' rx='8' ry='5' fill='%23F472B6' opacity='0.9'%3E%3C/ellipse%3E%3Cpath d='M140 176 Q160 192 180 176' stroke='%2338BDF8' stroke-width='4' stroke-linecap='round' fill='none'%3E%3C/path%3E%3C/g%3E%3C/svg%3E`,
-      scaledSize: new (window as any).google.maps.Size(40, 40),
+      url: `data:image/svg+xml,%3Csvg width='${size}' height='${size}' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg' fill='none'%3E%3Cpath d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z' fill='${color}' stroke='white' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='9' r='2.5' fill='white'/%3E%3C/svg%3E`,
+      scaledSize: new (window as any).google.maps.Size(size, size),
       origin: new (window as any).google.maps.Point(0, 0),
-      anchor: new (window as any).google.maps.Point(20, 40),
+      anchor: new (window as any).google.maps.Point(size / 2, size),
     };
   }
   return undefined;
@@ -60,8 +76,8 @@ export default function BranchesMap({ branches, selectedBranch, onSelect }: Prop
       if (!b.latitude || !b.longitude) return;
 
       mapRef.current.setCenter({
-        lat: +b.latitude,
-        lng: +b.longitude,
+        lat: parseFloat(b.latitude),
+        lng: parseFloat(b.longitude),
       });
       mapRef.current.setZoom(15);
       return;
@@ -73,31 +89,39 @@ export default function BranchesMap({ branches, selectedBranch, onSelect }: Prop
     branches.forEach((b) => {
       if (b.latitude && b.longitude) {
         bounds.extend({
-          lat: +b.latitude,
-          lng: +b.longitude,
+          lat: parseFloat(b.latitude),
+          lng: parseFloat(b.longitude),
         });
       }
     });
 
     mapRef.current.fitBounds(bounds);
+    
+    // Add padding
+    const padding = { top: 50, right: 50, bottom: 50, left: 50 };
+    mapRef.current.fitBounds(bounds, padding);
   }, [branches, mapReady]);
 
   // When card is clicked, pan to that branch
   useEffect(() => {
-    if (!mapRef.current || !selectedBranch?.latitude || !selectedBranch?.longitude) return;
+    if (!mapRef.current || !selectedBranch?.latitude) return;
 
     mapRef.current.panTo({
-      lat: +selectedBranch.latitude,
-      lng: +selectedBranch.longitude,
+      lat: parseFloat(selectedBranch.latitude),
+      lng: parseFloat(selectedBranch.longitude),
     });
     mapRef.current.setZoom(16);
+    setActiveMarker(selectedBranch);
   }, [selectedBranch]);
 
   if (!isLoaded) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-100 animate-pulse">
-        <div className="text-sm text-gray-500">
-          Газрын зураг ачааллаж байна…
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-teal-50 to-cyan-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mb-3"></div>
+          <p className="text-sm text-gray-600 font-medium">
+            Газрын зураг ачааллаж байна...
+          </p>
         </div>
       </div>
     );
@@ -106,6 +130,8 @@ export default function BranchesMap({ branches, selectedBranch, onSelect }: Prop
   return (
     <GoogleMap
       mapContainerStyle={containerStyle}
+      center={defaultCenter}
+      zoom={12}
       onLoad={(map) => {
         mapRef.current = map;
         window.google.maps.event.trigger(map, "resize");
@@ -114,65 +140,119 @@ export default function BranchesMap({ branches, selectedBranch, onSelect }: Prop
       options={{
         scrollwheel: true,
         gestureHandling: "auto",
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: true,
+        styles: [
+          {
+            featureType: "poi",
+            elementType: "labels",
+            stylers: [{ visibility: "off" }],
+          },
+        ],
       }}
     >
-      {branches.map(
-        (b) =>
-          b.latitude != null &&
-          b.longitude != null && (
-            <Marker
-              key={b.id}
-              position={{ lat: +b.latitude, lng: +b.longitude }}
-              onClick={() => {
-                setActiveMarker(b);
-                onSelect(b);
-              }}
-              title={b.name}
-              icon={getCustomMarkerIcon()}
-            />
-          )
+      {branches.map((b) =>
+        b.latitude && b.longitude ? (
+          <Marker
+            key={b.id}
+            position={{
+              lat: parseFloat(b.latitude),
+              lng: parseFloat(b.longitude),
+            }}
+            onClick={() => {
+              setActiveMarker(b);
+              onSelect(b);
+            }}
+            title={b.name}
+            icon={getCustomMarkerIcon(selectedBranch?.id === b.id)}
+            animation={
+              selectedBranch?.id === b.id
+                ? google.maps.Animation.BOUNCE
+                : undefined
+            }
+          />
+        ) : null
       )}
 
       {activeMarker?.latitude && activeMarker.longitude && (
         <InfoWindow
           position={{
-            lat: +activeMarker.latitude,
-            lng: +activeMarker.longitude,
+            lat: parseFloat(activeMarker.latitude),
+            lng: parseFloat(activeMarker.longitude),
           }}
           onCloseClick={() => setActiveMarker(null)}
+          options={{
+            pixelOffset: new google.maps.Size(0, 100),
+          }}
         >
-          <div className="min-w-[250px] text-sm p-2">
-            {activeMarker.image && (
-              <img
-                src={activeMarker.image}
-                alt={activeMarker.name}
-                className="w-full h-32 object-cover rounded-md mb-2"
-              />
+          <div className="min-w-[250px] max-w-[10px]">
+            {/* Зураг */}
+            {activeMarker.image_url && (
+              <div className="relative h-30 w-full mb-3 -mx-4 -mt-4 rounded-t-lg overflow-hidden">
+                <img
+                  src={`http://127.0.0.1:8000${activeMarker.image_url}`}
+                  alt={activeMarker.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "/placeholder-branch.jpg";
+                  }}
+                />
+              </div>
             )}
-            
-            <h3 className="font-semibold text-gray-900 mb-1">
+
+            <h3 className="font-bold text-gray-900 text-lg mb-3">
               {activeMarker.name}
             </h3>
 
-            {activeMarker.location && (
-              <p className="text-gray-600 mb-2 text-xs">
-                {activeMarker.location}
-              </p>
-            )}
+            <div className="space-y-2 mb-4">
+              <div className="flex items-start gap-2 text-gray-700">
+                <MapPin className="w-4 h-4 text-teal-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium">{activeMarker.location}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    {activeMarker.area}, {activeMarker.city}, {activeMarker.district}-р хороо
+                  </p>
+                </div>
+              </div>
 
-            {activeMarker.phones?.[0] && (
-              <p className="text-gray-700 mb-2 text-xs">
-                 {activeMarker.phones[0].phone}
-              </p>
-            )}
+              <div className="flex items-center gap-2 text-gray-700">
+                <Calendar className="w-4 h-4 text-teal-600 flex-shrink-0" />
+                <span className="text-sm">{activeMarker.open}</span>
+              </div>
+
+              <div className="flex items-center gap-2 text-gray-700">
+                <Clock className="w-4 h-4 text-teal-600 flex-shrink-0" />
+                <span className="text-sm">{activeMarker.time}</span>
+              </div>
+
+              {activeMarker.phones && activeMarker.phones.length > 0 && (
+                <div className="flex items-start gap-2 text-gray-700">
+                  <Phone className="w-4 h-4 text-teal-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm space-y-1">
+                    {activeMarker.phones.map((phone) => (
+                      <a
+                        key={phone.id}
+                        href={`tel:${phone.phone}`}
+                        className="block hover:text-teal-600 transition-colors font-medium"
+                      >
+                        {phone.phone}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <a
               href={`https://www.google.com/maps/dir/?api=1&destination=${activeMarker.latitude},${activeMarker.longitude}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block text-teal-600 font-medium hover:underline text-xs"
+              className="inline-flex items-center gap-2 w-full justify-center px-4 py-2.5 bg-teal-600 text-white rounded-lg font-medium hover:bg-teal-700 transition-colors text-sm"
             >
-              Чиглэл авах →
+              <MapPin className="w-4 h-4" />
+              Чиглэл авах
             </a>
           </div>
         </InfoWindow>

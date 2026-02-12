@@ -2,9 +2,7 @@
 import Image from 'next/image'
 import { useState, useRef, useEffect } from 'react'
 import RatesTicker from './RatesTicker'
-import api from '@/lib/api'
-
-const API_BASE_URL = "http://127.0.0.1:8000"
+import axiosInstance from '@/config/axiosConfig'
 
 interface SliderItem {
   id: number
@@ -26,7 +24,7 @@ export default function Hero() {
   useEffect(() => {
     const fetchSliderData = async () => {
       try {
-        const response = await api.get('/hero-slider/') 
+        const response = await axiosInstance.get('/hero-slider/') 
         if (response && response.status === 200) {
           const visibleItems = response.data
             .filter((item: SliderItem) => item.visible === true)
@@ -34,6 +32,8 @@ export default function Hero() {
           
           setSliderItems(visibleItems)
         }
+
+        console.log(response)
       } catch (err) {
         console.error('Error fetching slider data:', err)
         
@@ -128,14 +128,14 @@ export default function Hero() {
             {media.file ? (
               media.type === 'i' ? (
                 <Image
-                  src={`${API_BASE_URL}/${media.file}`}
+                  src={`http://127.0.0.1:8000/${media.file}`}
                   alt="Hero preview"
                   fill
                   className="object-cover object-center"
                 />
               ) : (
                 <video
-                  src={`${API_BASE_URL}/${media.file}`}
+                  src={`http://127.0.0.1:8000/${media.file}`}
                   className="w-full h-full object-cover object-center"
                   autoPlay
                   muted

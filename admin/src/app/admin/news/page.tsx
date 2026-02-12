@@ -65,7 +65,6 @@ interface Category {
   label_en: string
 }
 
-// ===== FRONTEND INTERFACES =====
 interface NewsItem {
   id: string
   title_mn: string

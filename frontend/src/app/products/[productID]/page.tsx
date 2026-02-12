@@ -1,54 +1,161 @@
 'use client'
 
+import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useLanguage } from '@/contexts/LanguageContext'
-import LoanCalculator from './LoanCalculator'
+import LoanCalculator from '../../../components/LoanCalculator'
+import { axiosInstance } from '@/lib/axios'
 
-interface ProductData {
-  name_mn: string
-  name_en: string
-  category_mn: string
-  category_en: string
-  description_mn: string
-  description_en: string
-  stats: {
-    interest?: string
-    decision?: string
-    term?: string
-  }
-  details: {
-    amount?: string
-    fee?: string
-    interest?: string
-    term?: string
-    decision?: string
-  }
-  materials: string[]
-  collateral?: string[]
-  conditions?: string[]
+
+interface Translation {
+  id: number
+  language: number
+  label: string
 }
 
-interface ProductPageProps {
-  data: ProductData
+interface ProductDetail {
+  id: number
+  amount: string
+  min_fee_percent: string
+  max_fee_percent: string
+  min_interest_rate: string
+  max_interest_rate: string
+  term_months: number
+  min_processing_hours: number
+  max_processing_hoyrs: number
 }
 
-export default function ProductPage({ data }: ProductPageProps) {
+interface RawDocument {
+  id: number
+  translations: Translation[]
+}
+
+interface ApiProductResponse {
+  id: number
+  product_type: number
+  translations: Translation[]
+  details: ProductDetail[]
+  documents:   { id: number; document:   RawDocument }[]
+  collaterals: { id: number; collateral: RawDocument }[]
+  conditions:  { id: number; condition:  RawDocument }[]
+}
+
+
+const getTranslation = (translations: Translation[], languageId: number): string =>
+  translations.find(t => t.language === languageId)?.label || ''
+
+
+export default function ProductPage() {
+  const params    = useParams()
+  const productId = params?.productID as string
   const { language, t } = useLanguage()
 
-  const name = language === 'mn' ? data.name_mn : data.name_en
-  const category = language === 'mn' ? data.category_mn : data.category_en
+  const [apiData, setApiData] = useState<ApiProductResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
+
+  const langId = language === 'mn' ? 2 : 1
+
+
+  useEffect(() => {
+    if (!productId) {
+      setError('Product ID олдсонгүй')
+      setLoading(false)
+      return
+    }
+
+    const fetchData = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const res = await axiosInstance.get<ApiProductResponse>(`/product/${productId}`)
+        setApiData(res.data)
+      } catch (err: any) {
+        console.error('Failed to fetch product:', err)
+        setError(err.response?.data?.message || err.message || 'Алдаа гарлаа')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [productId])
+
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">{t('Ачаалж байна...', 'Loading...')}</p>
+        </div>
+      </div>
+    )
+  }
+
+
+  if (error || !apiData) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50">
+        <div className="text-center">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            {t('Алдаа гарлаа', 'Error')}
+          </h2>
+          <p className="text-gray-600">{error || t('Бүтээгдэхүүн олдсонгүй', 'Product not found')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Transform API → UI ───────────────────────────────────────────────────
+
+  const detail = apiData.details?.[0] || {
+    amount: '0', min_fee_percent: '0', max_fee_percent: '0',
+    min_interest_rate: '0', max_interest_rate: '0',
+    term_months: 0, min_processing_hours: 0, max_processing_hoyrs: 0,
+  }
+
+  const data = {
+    name_mn:        getTranslation(apiData.translations, 2),
+    name_en:        getTranslation(apiData.translations, 1),
+    category_mn:    'Бизнес · Санхүүжилт',
+    category_en:    'Business · Financing',
+    description_mn: '',
+    description_en: '',
+    stats: {
+      interest: `${detail.min_interest_rate}% - ${detail.max_interest_rate}%`,
+      decision: `${detail.min_processing_hours}-${detail.max_processing_hoyrs} ${t('цаг', 'hrs')}`,
+      term:     `${detail.term_months} ${t('сар', 'mo')}`,
+    },
+    details: {
+      amount:   `${parseFloat(detail.amount || '0').toLocaleString()}₮`,
+      fee:      `${detail.min_fee_percent}-${detail.max_fee_percent}%`,
+      interest: `${detail.min_interest_rate}% - ${detail.max_interest_rate}%`,
+      term:     `${detail.term_months} ${t('сар', 'months')}`,
+      decision: `${detail.min_processing_hours}-${detail.max_processing_hoyrs} ${t('цаг', 'hours')}`,
+    },
+    materials:  apiData.documents?.map(d  => getTranslation(d.document.translations,   langId)) || [],
+    collateral: apiData.collaterals?.map(c => getTranslation(c.collateral.translations, langId)) || [],
+    conditions: apiData.conditions?.map(c  => getTranslation(c.condition.translations,  langId)) || [],
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  const name        = language === 'mn' ? data.name_mn        : data.name_en
+  const category    = language === 'mn' ? data.category_mn    : data.category_en
   const description = language === 'mn' ? data.description_mn : data.description_en
 
   const stats = [
     data.stats.interest && { value: data.stats.interest, label: t('Сарын хүү', 'Interest Rate') },
     data.stats.decision && { value: data.stats.decision, label: t('Шийдвэр', 'Decision') },
-    data.stats.term && { value: data.stats.term, label: t('Хамгийн урт хугацаа', 'Max Term') },
+    data.stats.term     && { value: data.stats.term,     label: t('Хамгийн урт хугацаа', 'Max Term') },
   ].filter(Boolean) as { value: string; label: string }[]
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 text-slate-900">
       <div className="max-w-6xl mx-auto px-6 py-16 md:py-20 space-y-14">
-        {/* Hero */}
         <header className="grid gap-10 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] items-center">
           <div>
             <div className="inline-flex items-center gap-2 bg-teal-50 text-teal-700 px-4 py-1.5 rounded-full text-xs font-medium mb-4">
@@ -72,7 +179,6 @@ export default function ProductPage({ data }: ProductPageProps) {
             </p>
           </div>
 
-          {/* Stats */}
           {stats.length > 0 && (
             <section aria-label="Key stats" className="flex flex-row gap-2">
               {stats.map((s, i) => (
@@ -85,9 +191,7 @@ export default function ProductPage({ data }: ProductPageProps) {
           )}
         </header>
 
-        {/* Main content */}
         <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,0.9fr)] items-start">
-          {/* LEFT: product details */}
           <section className="space-y-6">
             <div className="bg-white border border-slate-200 rounded-2xl p-6 md:p-7 shadow-sm">
               <h2 className="text-xl md:text-2xl font-bold text-slate-900 mb-2">{name}</h2>
@@ -95,7 +199,6 @@ export default function ProductPage({ data }: ProductPageProps) {
                 {t('Бүтээгдэхүүний үндсэн нөхцөл ба шаардлагууд', 'Product conditions and requirements')}
               </p>
 
-              {/* Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
                 {data.details.amount && (
                   <div className="rounded-xl bg-slate-50 p-3">
@@ -129,7 +232,6 @@ export default function ProductPage({ data }: ProductPageProps) {
                 )}
               </div>
 
-              {/* Materials */}
               <div className="mb-6">
                 <h3 className="text-sm font-bold text-slate-900 mb-3">
                   {t('Шаардагдах материал', 'Required Documents')}
@@ -146,7 +248,6 @@ export default function ProductPage({ data }: ProductPageProps) {
                 </ul>
               </div>
 
-              {/* Collateral */}
               {data.collateral && data.collateral.length > 0 && (
                 <div className="mb-6">
                   <h3 className="text-sm font-bold text-slate-900 mb-3">
@@ -165,7 +266,6 @@ export default function ProductPage({ data }: ProductPageProps) {
                 </div>
               )}
 
-              {/* Conditions */}
               {data.conditions && data.conditions.length > 0 && (
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 mb-3">
@@ -186,7 +286,6 @@ export default function ProductPage({ data }: ProductPageProps) {
             </div>
           </section>
 
-          {/* RIGHT: Calculator */}
           <aside>
             <div className="sticky top-24">
               <LoanCalculator />

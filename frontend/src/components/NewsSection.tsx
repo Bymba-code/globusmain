@@ -3,68 +3,152 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import Container from './Container'
+import { axiosInstance } from '@/lib/axios'
 
-// News Item type definition
-export interface NewsItem {
-  id: string
+interface ApiTranslation {
+  language: number 
+  label: string
+  font: string
+  family: string
+  weight: string
+  size: string
+}
+
+interface ApiImage {
+  image: string
+}
+
+interface ApiSocial {
+  social: string
+  icon: string
+}
+
+interface ApiNewsItem {
+  id: number
+  category: number
+  image: string 
+  video: string
+  feature: boolean
+  render: boolean
+  readtime: number
+  slug: string
+  date: string
+  images: ApiImage[]
+  socials: ApiSocial[]
+  title_translations: ApiTranslation[]
+  shortdesc_translations: ApiTranslation[]
+  content_translations: ApiTranslation[]
+}
+
+interface CategoryTranslation {
+  id: number
+  language: number
+  label: string
+}
+
+interface CategoryAPI {
+  id: number
+  translations: CategoryTranslation[]
+}
+
+interface NewsItem {
+  id: number
   title: string
-  excerpt: string
-  content: string
+  slug: string
   bannerImage: string
-  category: string
+  category: number
   publishedAt: string
   readTime: number
-  isActive: boolean
   isPinnedNews: boolean
-  isPinnedHome: boolean
+}
+
+interface Category {
+  id: number
+  label: string
+}
+
+const getTranslation = (translations: ApiTranslation[], language: number): ApiTranslation | undefined => {
+  return translations.find(t => t.language === language)
+}
+
+const getCategoryTranslation = (translations: CategoryTranslation[], language: number): CategoryTranslation | undefined => {
+  return translations.find(t => t.language === language)
+}
+
+const mapAPICategoryToCategory = (apiCategory: CategoryAPI): Category => {
+  const labelMn = getCategoryTranslation(apiCategory.translations, 1)
+  
+  return {
+    id: apiCategory.id,
+    label: labelMn?.label || '',
+  }
+}
+
+const mapApiNewsToFrontend = (item: ApiNewsItem): NewsItem => {
+  const titleMn = getTranslation(item.title_translations, 1)
+
+  return {
+    id: item.id,
+    title: titleMn?.label || '',
+    slug: item.slug,
+    bannerImage: item.image,
+    category: item.category,
+    publishedAt: item.date,
+    readTime: item.readtime || 2,
+    isPinnedNews: item.feature,
+  }
 }
 
 export default function NewsSection() {
   const [news, setNews] = useState<NewsItem[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchNews = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001'
-        const response = await fetch(`${apiUrl}/api/news`)
-        if (!response.ok) {
-          throw new Error(`Failed to fetch news: ${response.status}`)
-        }
-        const data = await response.json()
-        setNews(Array.isArray(data) ? data : data.news || [])
-      } catch (err) {
-        console.error('Error fetching news:', err)
-        setError('Failed to load news')
-        setNews([])
-      } finally {
-        setLoading(false)
-      }
-    }
+    fetchCategories()
     fetchNews()
   }, [])
 
-  const categoryLabels: Record<string, string> = {
-    announcement: 'Мэдээлэл',
-    maintenance: 'Үйлчилгээ',
-    advice: 'Зөвлөгөө',
-    video: 'Видео бичлэг',
-    community: 'Нийгэмд',
+  const fetchCategories = async () => {
+    try {
+      const response = await axiosInstance.get<CategoryAPI[]>('/news-category/')
+      const transformedCategories = response.data.map(mapAPICategoryToCategory)
+      setCategories(transformedCategories)
+    } catch (error) {
+      console.error('Failed to fetch categories:', error)
+    }
   }
 
+  const fetchNews = async () => {
+    setLoading(true)
+    try {
+      const response = await axiosInstance.get<ApiNewsItem[]>('/news/')
+      const transformedNews = response.data
+        .filter(item => item.render) 
+        .map(mapApiNewsToFrontend)
+      setNews(transformedNews)
+    } catch (error) {
+      console.error('Failed to fetch news:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Sort news: pinned first, then by date
   const sortedNews = [...news].sort((a, b) => {
-    if (a.isPinnedHome === b.isPinnedHome) {
+    if (a.isPinnedNews === b.isPinnedNews) {
       return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
     }
-    return a.isPinnedHome ? -1 : 1
+    return a.isPinnedNews ? -1 : 1
   })
 
-  const pinnedNews = sortedNews.filter((item) => item.isPinnedHome)
+  const pinnedNews = sortedNews.filter((item) => item.isPinnedNews)
   const displayNews = pinnedNews.slice(0, 3)
+
+  // Get category label
+  const getCategoryLabel = (categoryId: number): string => {
+    return categories.find(c => c.id === categoryId)?.label || 'Мэдээ'
+  }
 
   return (
     <section className="py-16 sm:py-20 lg:py-32 px-5 sm:px-20 flex flex-col">
@@ -78,60 +162,47 @@ export default function NewsSection() {
           </div>
         </div>
 
-        {/* Highlighted news (pinned or fallback) */}
         {loading && (
-          <div className="flex justify-center items-center py-16">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-teal-200 border-t-teal-600 rounded-full animate-spin"></div>
-              <p className="text-gray-600 font-medium">Мэдээг ачаалж байна...</p>
-            </div>
+          <div className="flex items-center justify-center py-16">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div>
           </div>
         )}
 
-        {error && !loading && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center max-w-md mx-auto">
-            <svg className="w-12 h-12 text-red-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 className="text-lg font-semibold text-red-900 mb-1">Алдаа гарлаа</h3>
-            <p className="text-red-700">Мэдээг ачаалахад алдаа гарлаа</p>
-          </div>
-        )}
-
-        {!loading && !error && displayNews.length > 0 && (
+        {!loading && displayNews.length > 0 && (
           <>
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:gap-10 mb-10 lg:mb-20 lg:max-w-[1280px] lg:mx-auto">
-              {/* Featured article - large */}
               <Link
-                href={`/news/${displayNews[0].id}`}
-                className="bg-white cursor-pointer rounded-2xl sm:rounded-[20px] lg:rounded-l-[28px] flex flex-col h-[467px] sm:col-span-2 sm:h-[592px] lg:h-[480px] lg:flex-row group shadow-sm hover:shadow-lg transition-shadow"
+                href={`/news/${displayNews[0].slug}`}
+                className="bg-white cursor-pointer rounded-1xl sm:rounded-[20px] lg:rounded-l-[28px] flex flex-col h-[257px] sm:col-span-2 sm:h-[592px] lg:h-[480px] lg:flex-row group shadow-sm hover:shadow-lg transition-shadow"
               >
-                <div className="relative rounded-t-2xl sm:rounded-t-[20px] lg:rounded-l-[28px] lg:rounded-r-none overflow-hidden h-[45%] sm:h-4/5 lg:h-auto lg:w-2/3 bg-gray-200">
+                <div className="relative rounded-t-2xl sm:rounded-t-[20px] lg:rounded-l-[28px] lg:rounded-r-none overflow-hidden h-[45%] sm:h-5/5 lg:h-auto lg:w-2/4 bg-gray-200">
                   <Image
                     src={displayNews[0].bannerImage}
                     alt={displayNews[0].title}
                     fill
+                    unoptimized
                     className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
                   />
                 </div>
                 <div className="flex flex-col justify-between h-[55%] p-5 lg:p-8 lg:h-auto lg:w-1/3">
                   <div className="flex flex-col gap-2 sm:gap-4">
                     <p className="text-sm font-medium text-teal-600">
-                      {categoryLabels[displayNews[0].category] || 'Мэдээ'}
+                      {getCategoryLabel(displayNews[0].category)}
                     </p>
                     <p className="text-gray-900 text-xl font-semibold leading-8 max-h-[128px] overflow-y-hidden text-ellipsis lg:text-2xl lg:leading-10 sm:text-[28px] lg:max-h-[250px]">
                       {displayNews[0].title}
                     </p>
                   </div>
-                  <p className="text-sm font-medium text-gray-500">{new Date(displayNews[0].publishedAt).toLocaleDateString()} • {displayNews[0].readTime} минут унших</p>
+                  <p className="text-sm font-medium text-gray-500">
+                    {new Date(displayNews[0].publishedAt).toLocaleDateString('mn-MN')} • {displayNews[0].readTime} минут унших
+                  </p>
                 </div>
               </Link>
 
-              {/* Small articles - vertical stack */}
               {displayNews.slice(1, 3).map((item) => (
                 <Link
                   key={item.id}
-                  href={`/news/${item.id}`}
+                  href={`/news/${item.slug}`}
                   className="bg-white cursor-pointer rounded-2xl sm:rounded-[20px] lg:rounded-l-[28px] flex flex-col h-[467px] lg:h-[658px] group shadow-sm hover:shadow-lg transition-shadow"
                 >
                   <div className="relative rounded-t-2xl sm:rounded-t-[20px] lg:rounded-t-[28px] overflow-hidden h-[45%] lg:h-1/2 bg-gray-200">
@@ -139,19 +210,22 @@ export default function NewsSection() {
                       src={item.bannerImage}
                       alt={item.title}
                       fill
+                      unoptimized
                       className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
                     />
                   </div>
                   <div className="flex flex-col justify-between h-[55%] p-5 lg:p-8 lg:h-1/2 lg:pt-5">
                     <div className="flex flex-col gap-2 sm:gap-4">
                       <p className="text-sm font-medium text-teal-600">
-                        {categoryLabels[item.category] || 'Мэдээ'}
+                        {getCategoryLabel(item.category)}
                       </p>
                       <p className="text-gray-900 text-xl font-semibold leading-8 max-h-[128px] overflow-y-hidden text-ellipsis lg:text-2xl lg:leading-10">
                         {item.title}
                       </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-500">{new Date(item.publishedAt).toLocaleDateString()} • {item.readTime} минут унших</p>
+                    <p className="text-sm font-medium text-gray-500">
+                      {new Date(item.publishedAt).toLocaleDateString('mn-MN')} • {item.readTime} минут унших
+                    </p>
                   </div>
                 </Link>
               ))}
@@ -169,8 +243,28 @@ export default function NewsSection() {
             </div>
           </>
         )}
+
+        {!loading && displayNews.length === 0 && (
+          <div className="text-center py-16">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+              <svg className="w-8 h-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-1">Онцлох мэдээ байхгүй байна</h3>
+            <p className="text-gray-500 mb-6">Удахгүй онцлох мэдээнүүд нэмэгдэх болно.</p>
+            <Link
+              href="/news"
+              className="inline-flex items-center gap-2 px-8 py-3 bg-teal-600 text-white font-semibold rounded-full hover:bg-teal-700 transition-all duration-300 shadow-md hover:shadow-lg"
+            >
+              Бүх мэдээг үзэх
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+        )}
       </div>
     </section>
   )
 }
-

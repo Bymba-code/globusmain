@@ -138,40 +138,54 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
     }
   }
 
+  // Check if we have any data to display
+  const hasMaterials = data.materials && data.materials.length > 0
+  const hasCollateral = data.collateral && data.collateral.length > 0
+  const hasConditions = data.conditions && data.conditions.length > 0
+  const hasStats = stats.length > 0
+  const hasDetailsMetrics = data.details.amount || data.details.fee || data.details.interest || data.details.term || data.details.decision
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-slate-50 text-slate-900">
       <div className="max-w-6xl mx-auto px-6 py-16 md:py-20 space-y-14">
         {/* Hero */}
         <header className="grid gap-10 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] items-center">
           <div>
-            <div 
-              className="inline-flex items-center gap-2 bg-teal-50 text-teal-700 px-4 py-1.5 rounded-full mb-4 md:text-[var(--desktop-size)]"
-              style={getStyleObject(data.category_style)}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {category}
-            </div>
+            {category && (
+              <div 
+                className="inline-flex items-center gap-2 bg-teal-50 text-teal-700 px-4 py-1.5 rounded-full mb-4 md:text-[var(--desktop-size)]"
+                style={getStyleObject(data.category_style)}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                {category}
+              </div>
+            )}
 
-            <h1 
-              className="font-extrabold mb-3 md:text-[var(--desktop-size)]"
-              style={getStyleObject(data.name_style)}
-            >
-              {name}
-            </h1>
-            <p 
-              className="max-w-xl md:text-[var(--desktop-size)]"
-              style={getStyleObject(data.description_style)}
-            >
-              {description}
-            </p>
+            {name && (
+              <h1 
+                className="font-extrabold mb-3 md:text-[var(--desktop-size)]"
+                style={getStyleObject(data.name_style)}
+              >
+                {name}
+              </h1>
+            )}
+
+            {description && (
+              <p 
+                className="max-w-xl md:text-[var(--desktop-size)]"
+                style={getStyleObject(data.description_style)}
+              >
+                {description}
+              </p>
+            )}
 
             {/* Custom Text Blocks - Hero Placement */}
             {data.blocks
@@ -183,7 +197,7 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
           </div>
 
           {/* Stats */}
-          {stats.length > 0 && (
+          {hasStats && (
             <section aria-label="Key stats" className="flex flex-row gap-2">
               {stats.map((s, i) => (
                 <div key={i} className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-center shadow-sm flex-1">
@@ -234,122 +248,126 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
               </p>
 
               {/* Metrics */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-                {data.details.amount && (
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p 
-                      className="mb-1 md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsLabelStyle)}
-                    >
-                      {t('Хэмжээ /₮/', 'Amount')}
-                    </p>
-                    <p 
-                      className="font-semibold md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsValueStyle)}
-                    >
-                      {data.details.amount}
-                    </p>
-                  </div>
-                )}
-                {data.details.fee && (
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p 
-                      className="mb-1 md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsLabelStyle)}
-                    >
-                      {t('Шимтгэл /%/', 'Fee')}
-                    </p>
-                    <p 
-                      className="font-semibold md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsValueStyle)}
-                    >
-                      {data.details.fee}
-                    </p>
-                  </div>
-                )}
-                {data.details.interest && (
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p 
-                      className="mb-1 md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsLabelStyle)}
-                    >
-                      {t('Хүү /сарын/', 'Interest')}
-                    </p>
-                    <p 
-                      className="font-semibold md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsValueStyle)}
-                    >
-                      {data.details.interest}
-                    </p>
-                  </div>
-                )}
-                {data.details.term && (
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <p 
-                      className="mb-1 md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsLabelStyle)}
-                    >
-                      {t('Зээлийн хугацаа', 'Loan Term')}
-                    </p>
-                    <p 
-                      className="font-semibold md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsValueStyle)}
-                    >
-                      {data.details.term}
-                    </p>
-                  </div>
-                )}
-                {data.details.decision && (
-                  <div className="rounded-xl bg-slate-50 p-3 md:col-span-2">
-                    <p 
-                      className="mb-1 md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsLabelStyle)}
-                    >
-                      {t('Шийдвэрлэх хугацаа', 'Decision Time')}
-                    </p>
-                    <p 
-                      className="font-semibold md:text-[var(--desktop-size)]"
-                      style={getStyleObject(data.metricsValueStyle)}
-                    >
-                      {data.details.decision}
-                    </p>
-                  </div>
-                )}
-              </div>
+              {hasDetailsMetrics && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+                  {data.details.amount && (
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p 
+                        className="mb-1 md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsLabelStyle)}
+                      >
+                        {t('Хэмжээ /₮/', 'Amount')}
+                      </p>
+                      <p 
+                        className="font-semibold md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsValueStyle)}
+                      >
+                        {data.details.amount}
+                      </p>
+                    </div>
+                  )}
+                  {data.details.fee && (
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p 
+                        className="mb-1 md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsLabelStyle)}
+                      >
+                        {t('Шимтгэл /%/', 'Fee')}
+                      </p>
+                      <p 
+                        className="font-semibold md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsValueStyle)}
+                      >
+                        {data.details.fee}
+                      </p>
+                    </div>
+                  )}
+                  {data.details.interest && (
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p 
+                        className="mb-1 md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsLabelStyle)}
+                      >
+                        {t('Хүү /сарын/', 'Interest')}
+                      </p>
+                      <p 
+                        className="font-semibold md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsValueStyle)}
+                      >
+                        {data.details.interest}
+                      </p>
+                    </div>
+                  )}
+                  {data.details.term && (
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p 
+                        className="mb-1 md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsLabelStyle)}
+                      >
+                        {t('Зээлийн хугацаа', 'Loan Term')}
+                      </p>
+                      <p 
+                        className="font-semibold md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsValueStyle)}
+                      >
+                        {data.details.term}
+                      </p>
+                    </div>
+                  )}
+                  {data.details.decision && (
+                    <div className="rounded-xl bg-slate-50 p-3 md:col-span-2">
+                      <p 
+                        className="mb-1 md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsLabelStyle)}
+                      >
+                        {t('Шийдвэрлэх хугацаа', 'Decision Time')}
+                      </p>
+                      <p 
+                        className="font-semibold md:text-[var(--desktop-size)]"
+                        style={getStyleObject(data.metricsValueStyle)}
+                      >
+                        {data.details.decision}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Materials */}
-              <div className="mb-6">
-                <h3 
-                  className="font-bold mb-3 md:text-[var(--desktop-size)]"
-                  style={getStyleObject(data.materialsTitleStyle)}
-                >
-                  {materialsTitle}
-                </h3>
-                <ul className="space-y-2">
-                  {data.materials.map((m) => (
-                    <li key={m.id || crypto.randomUUID()} className="flex items-start gap-2">
-                      <svg 
-                        className="w-4 h-4 mt-0.5 flex-shrink-0" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                        style={{ color: data.materialsIconColor || '#0d9488' }}
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span 
-                        className="md:text-[var(--desktop-size)]"
-                        style={getStyleObject(data.materialsTextStyle)}
-                      >
-                        {language === 'mn' ? m.mn : m.en}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {hasMaterials && (
+                <div className="mb-6">
+                  <h3 
+                    className="font-bold mb-3 md:text-[var(--desktop-size)]"
+                    style={getStyleObject(data.materialsTitleStyle)}
+                  >
+                    {materialsTitle}
+                  </h3>
+                  <ul className="space-y-2">
+                    {data.materials.map((m, index) => (
+                      <li key={m.id || `material-${index}`} className="flex items-start gap-2">
+                        <svg 
+                          className="w-4 h-4 mt-0.5 flex-shrink-0" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                          style={{ color: data.materialsIconColor || '#0d9488' }}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span 
+                          className="md:text-[var(--desktop-size)]"
+                          style={getStyleObject(data.materialsTextStyle)}
+                        >
+                          {language === 'mn' ? m.mn : m.en}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {/* Collateral */}
-              {data.collateral && data.collateral.length > 0 && (
+              {hasCollateral && (
                 <div className="mb-6">
                   <h3 
                     className="font-bold mb-3 md:text-[var(--desktop-size)]"
@@ -358,8 +376,8 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
                     {collateralTitle}
                   </h3>
                   <ul className="space-y-2">
-                    {data.collateral.map((c) => (
-                      <li key={c.id || crypto.randomUUID()} className="flex items-start gap-2">
+                    {data.collateral.map((c, index) => (
+                      <li key={c.id || `collateral-${index}`} className="flex items-start gap-2">
                         <svg 
                           className="w-4 h-4 mt-0.5 flex-shrink-0" 
                           fill="none" 
@@ -382,7 +400,7 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
               )}
 
               {/* Conditions */}
-              {data.conditions && data.conditions.length > 0 && (
+              {hasConditions && (
                 <div>
                   <h3 
                     className="font-bold mb-3 md:text-[var(--desktop-size)]"
@@ -391,8 +409,8 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
                     {conditionsTitle}
                   </h3>
                   <ul className="space-y-2">
-                    {data.conditions.map((c) => (
-                      <li key={c.id || crypto.randomUUID()} className="flex items-start gap-2">
+                    {data.conditions.map((c, index) => (
+                      <li key={c.id || `condition-${index}`} className="flex items-start gap-2">
                         <svg 
                           className="w-4 h-4 mt-0.5 flex-shrink-0" 
                           fill="none" 
@@ -411,6 +429,13 @@ export default function ProductPage({ data, forceLang }: ProductPageProps) {
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {/* Empty state when no data */}
+              {!hasMaterials && !hasCollateral && !hasConditions && !hasDetailsMetrics && (
+                <div className="text-center py-8 text-slate-400">
+                  <p>{t('Мэдээлэл байхгүй байна', 'No information available')}</p>
                 </div>
               )}
             </div>

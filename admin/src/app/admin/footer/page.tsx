@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import AdminLayout from '@/components/AdminLayout'
 import { Input, PageHeader } from '@/components/FormElements'
-import ImageUpload from '@/components/ImageUpload'
-import { useSaveReset } from '@/hooks/useSaveReset'
 import { SaveResetButtons } from '@/components/SaveResetButtons'
+import { axiosInstance } from '@/lib/axios'
+import { useLanguage } from '@/contexts/LanguageContext'
 
 type LogoType = 'upload' | 'url' | 'svg'
 
@@ -18,68 +18,208 @@ interface LogoImage {
 type SocialType = 'facebook' | 'instagram' | 'twitter' | 'linkedin' | 'youtube' | 'telegram'
 
 interface SocialLink {
-  type: SocialType
+  id?: number
+  social: SocialType
+  url: string
+  index?: number
+}
+
+interface QuickLink {
+  id?: number
+  nameen: string
+  namemn: string
   url: string
 }
 
-interface FooterData {
+// 🔧 Backend API Response Type
+interface FooterDataBackend {
+  id?: number
+  logotext: string
+  logo?: string
+  logo_url?: string
+  svg?: string
+  descmn: string
+  descen: string
+  locationmn: string
+  locationen: string
+  email: string
+  phone: string
+  bgcolor: string
+  fontcolor: string
+  featurecolor: string
+  socialiconcolor: string
+  titlesize: string
+  fontsize: string
+  copyrighten: string
+  copyrightmn: string
+  socials: SocialLink[]
+  urls: QuickLink[]
+}
+
+// 🔧 Frontend State Type
+interface FooterDataFrontend {
   logoText: string
   logoImage: LogoImage
+  logoFile?: File
   description: { mn: string; en: string }
   address: { mn: string; en: string }
   email: string
   phone: string
   socials: SocialLink[]
-  quick_links: Array<{ name_mn: string; name_en: string; url: string }>
+  quick_links: QuickLink[]
   copyright: { mn: string; en: string }
-  // Styling options
   bgColor: string
   textColor: string
   accentColor: string
   titleSize: string
   textSize: string
   iconColor: string
+  backend_id?: number
 }
 
-const defaultData: FooterData = {
-  logoText: 'BichilGlobus',
-  logoImage: { type: 'upload', value: '' },
-  description: {
-    mn: 'Таны бизнесийг дэлхийд холбох финтек шийдлүүд. Бид хурдан, найдвартай, ил тод үйлчилгээг эрхэмлэнэ.',
-    en: 'Fintech solutions connecting your business to the world. We prioritize fast, reliable, and transparent service.'
-  },
-  address: {
-    mn: 'Улаанбаатар хот',
-    en: 'Ulaanbaatar City'
-  },
-  email: 'info@bichilglobus.mn',
-  phone: '+976 9999-9999',
-  socials: [
-    { type: 'facebook', url: 'https://facebook.com' },
-    { type: 'instagram', url: 'https://instagram.com' },
-    { type: 'twitter', url: 'https://twitter.com' }
-  ],
-  quick_links: [
-    { name_mn: 'Бидний тухай', name_en: 'About Us', url: '/about' },
-    { name_mn: 'Бүтээгдэхүүн', name_en: 'Products', url: '/products' },
-    { name_mn: 'Үйлчилгээ', name_en: 'Services', url: '/services' },
-    { name_mn: 'Мэдээ', name_en: 'News', url: '/news' },
-    { name_mn: 'Салбарууд', name_en: 'Branches', url: '/branches' }
-  ],
-  copyright: {
-    mn: 'Бүх эрх хуулиар хамгаалагдсан.',
-    en: 'All rights reserved.'
-  },
-  // Default styling
-  bgColor: '#ffffff',
-  textColor: '#4b5563',
-  accentColor: '#14b8a6',
-  titleSize: 'text-base',
-  textSize: 'text-sm',
-  iconColor: '#14b8a6'
+// 🔧 Helper: Convert pixel size to Tailwind class
+const pixelToTailwind = (pixel: string | number): string => {
+  const size = typeof pixel === 'string' ? parseInt(pixel) : pixel
+  if (size >= 24) return 'text-2xl'
+  if (size >= 20) return 'text-xl'
+  if (size >= 18) return 'text-lg'
+  if (size >= 16) return 'text-base'
+  if (size >= 14) return 'text-sm'
+  return 'text-xs'
 }
 
-// Helper function to get social icon
+// 🔧 Helper: Convert Tailwind class to pixel size
+const tailwindToPixel = (tailwind: string): string => {
+  const mapping: Record<string, string> = {
+    'text-xs': '12',
+    'text-sm': '14',
+    'text-base': '16',
+    'text-lg': '18',
+    'text-xl': '20',
+    'text-2xl': '24'
+  }
+  return mapping[tailwind] || '16'
+}
+
+const backendToFrontend = (backend: FooterDataBackend): FooterDataFrontend => {
+  let logoImage: LogoImage = { type: 'upload', value: '' }
+  
+  if (backend.svg && backend.svg.trim() !== '') {
+    logoImage = { type: 'svg', value: backend.svg }
+    console.log('📷 Using SVG logo')
+  } else if (backend.logo_url && backend.logo_url.trim() !== '') {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
+    const fullUrl = backend.logo_url.startsWith('http') 
+      ? backend.logo_url 
+      : `${baseUrl}${backend.logo_url}`
+    logoImage = { type: 'upload', value: fullUrl }
+    console.log('📷 Logo image URL:', fullUrl)
+  } else if (backend.logo && backend.logo.trim() !== '') {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'
+    const fullUrl = backend.logo.startsWith('http') 
+      ? backend.logo 
+      : `${baseUrl}/media/footer/${backend.logo}`
+    logoImage = { type: 'upload', value: fullUrl }
+    console.log('📷 Logo image URL (from logo field):', fullUrl)
+  }
+
+  return {
+    backend_id: backend.id,
+    logoText: backend.logotext || '',
+    logoImage,
+    description: {
+      mn: backend.descmn || '',
+      en: backend.descen || ''
+    },
+    address: {
+      mn: backend.locationmn || '',
+      en: backend.locationen || ''
+    },
+    email: backend.email || '',
+    phone: backend.phone || '',
+    socials: backend.socials || [],
+    quick_links: backend.urls || [],
+    copyright: {
+      mn: backend.copyrightmn || '',
+      en: backend.copyrighten || ''
+    },
+    bgColor: backend.bgcolor || '#ffffff',
+    textColor: backend.fontcolor || '#4b5563',
+    accentColor: backend.featurecolor || '#14b8a6',
+    titleSize: pixelToTailwind(backend.titlesize || '16'),
+    textSize: pixelToTailwind(backend.fontsize || '14'),
+    iconColor: backend.socialiconcolor || '#14b8a6'
+  }
+}
+
+const frontendToFormData = (frontend: FooterDataFrontend): FormData => {
+  const formData = new FormData()
+
+  formData.append('logotext', frontend.logoText || '')
+  formData.append('descmn', frontend.description.mn || '')
+  formData.append('descen', frontend.description.en || '')
+  formData.append('locationmn', frontend.address.mn || '')
+  formData.append('locationen', frontend.address.en || '')
+  formData.append('email', frontend.email || '')
+  formData.append('phone', frontend.phone || '')
+  formData.append('bgcolor', frontend.bgColor || '#ffffff')
+  formData.append('fontcolor', frontend.textColor || '#4b5563')
+  formData.append('featurecolor', frontend.accentColor || '#14b8a6')
+  formData.append('socialiconcolor', frontend.iconColor || '#14b8a6')
+  
+  formData.append('titlesize', tailwindToPixel(frontend.titleSize))
+  formData.append('fontsize', tailwindToPixel(frontend.textSize))
+  
+  formData.append('copyrightmn', frontend.copyright.mn || '')
+  formData.append('copyrighten', frontend.copyright.en || '')
+
+  if (frontend.logoImage.type === 'svg' && frontend.logoImage.value.trim() !== '') {
+    formData.append('svg', frontend.logoImage.value)
+    console.log('📤 Sending SVG logo')
+  } else if (frontend.logoFile) {
+    formData.append('logo', frontend.logoFile)
+    console.log('📤 Sending image file logo')
+  }
+
+  const validSocials = frontend.socials
+    .filter(s => s.url && s.url.trim() !== '' && s.social)
+    .map((s, idx) => ({
+      social: s.social,
+      url: s.url.trim(),
+      index: idx + 1
+    }))
+  
+  formData.append('socials', JSON.stringify(validSocials))
+  console.log('📤 Valid socials to send:', validSocials)
+
+  const validUrls = frontend.quick_links
+    .filter(link => {
+      const hasName = link.nameen.trim() !== '' || link.namemn.trim() !== ''
+      const hasUrl = link.url.trim() !== ''
+      return hasName && hasUrl
+    })
+    .map(link => ({
+      nameen: link.nameen.trim(),
+      namemn: link.namemn.trim(),
+      url: link.url.trim()
+    }))
+
+  formData.append('urls', JSON.stringify(validUrls))
+  console.log('📤 Valid URLs to send:', validUrls)
+
+  console.log('📦 Final FormData summary:', {
+    logotext: frontend.logoText,
+    has_logo_file: !!frontend.logoFile,
+    has_svg: frontend.logoImage.type === 'svg' && frontend.logoImage.value.trim() !== '',
+    titlesize: tailwindToPixel(frontend.titleSize),
+    fontsize: tailwindToPixel(frontend.textSize),
+    socials_count: validSocials.length,
+    urls_count: validUrls.length
+  })
+
+  return formData
+}
+
 const getSocialIcon = (type: SocialType) => {
   const icons: Record<SocialType, string> = {
     facebook: 'M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z',
@@ -92,47 +232,129 @@ const getSocialIcon = (type: SocialType) => {
   return icons[type] || ''
 }
 
-// Data Contract Mapper: Convert Admin format to API schema
-// Admin stores nested objects: { description: { mn, en } }
-// API expects flat fields: { description_mn, description_en }
-const mapToApiSchema = (data: FooterData) => ({
-  description_mn: data.description.mn,
-  description_en: data.description.en,
-  address_mn: data.address.mn,
-  address_en: data.address.en,
-  email: data.email,
-  phone: data.phone,
-  social_links: data.socials.map(social => ({
-    type: social.type,
-    url: social.url
-  })).filter(s => s.url), // Only include socials with URL
-  quick_links: data.quick_links,
-  copyright_mn: data.copyright.mn,
-  copyright_en: data.copyright.en,
-  textColor: data.textColor,
-  textSize: data.textSize,
-  bgColor: data.bgColor,
-  accentColor: data.accentColor,
-  iconColor: data.iconColor,
-  titleSize: data.titleSize
-})
-
 export default function FooterPage() {
-  const { data, setData, saveSuccess, handleSave: saveData, handleReset } = useSaveReset<FooterData>('footerConfig', defaultData, {
-    saver: async (footerData) => {
-      // Convert Admin format to API schema before saving
-      const payload = mapToApiSchema(footerData)
-      console.log(' Saving to API with schema:', payload)
-      // TODO: Implement API call when backend endpoint is ready
-      // await api.post('/api/admin/footer', payload)
-    }
+  const { language, t } = useLanguage()
+  const [data, setData] = useState<FooterDataFrontend>({
+    logoText: 'BichilGlobus',
+    logoImage: { type: 'upload', value: '' },
+    description: {
+      mn: 'Таны бизнесийг дэлхийд холбох финтек шийдлүүд.',
+      en: 'Fintech solutions connecting your business to the world.'
+    },
+    address: {
+      mn: 'Улаанбаатар хот',
+      en: 'Ulaanbaatar City'
+    },
+    email: 'info@bichilglobus.mn',
+    phone: '+976 9999-9999',
+    socials: [],
+    quick_links: [],
+    copyright: {
+      mn: 'Бүх эрх хуулиар хамгаалагдсан.',
+      en: 'All rights reserved.'
+    },
+    bgColor: '#ffffff',
+    textColor: '#4b5563',
+    accentColor: '#14b8a6',
+    titleSize: 'text-base',
+    textSize: 'text-sm',
+    iconColor: '#14b8a6'
   })
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [lang, _setLang] = useState<'mn' | 'en'>('mn')
+
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+
+  const fetchFooter = async () => {
+    try {
+      setLoading(true)
+      const response = await axiosInstance.get<FooterDataBackend[]>('/footer/')
+      
+      if (response.data && response.data.length > 0) {
+        const footerData = backendToFrontend(response.data[0])
+        setData(footerData)
+        console.log('✅ Footer loaded successfully')
+        console.log('📊 Loaded data:', {
+          socials: footerData.socials.length,
+          quick_links: footerData.quick_links.length,
+          has_logo: !!footerData.logoImage.value
+        })
+      }
+    } catch (error) {
+      console.error('❌ Error fetching footer:', error)
+      alert('Алдаа: Footer-ийг унших боломжгүй байна.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saveFooter = async () => {
+    try {
+      setLoading(true)
+      const formData = frontendToFormData(data)
+
+      let response
+      if (data.backend_id) {
+        console.log('🔄 Updating footer ID:', data.backend_id)
+        response = await axiosInstance.put<FooterDataBackend>(
+          `/footer/${data.backend_id}/`,
+          formData,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          }
+        )
+      } else {
+        console.log('🚀 Creating new footer')
+        response = await axiosInstance.post<FooterDataBackend>(
+          '/footer/',
+          formData,
+          {
+            headers: { 'Content-Type': 'multipart/form-data' }
+          }
+        )
+      }
+
+      console.log('✅ Footer saved successfully')
+      console.log('📊 Response data:', response.data)
+      
+      const updatedData = backendToFrontend(response.data)
+      setData(updatedData)
+
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch (error: any) {
+      console.error('❌ Error saving footer:', error)
+      console.error('Error details:', error.response?.data)
+      alert(`Алдаа гарлаа!\n\n${error.response?.data?.detail || 'Footer хадгалагдсангүй.'}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleReset = () => {
+    if (confirm('Бүх өөрчлөлтийг буцаах уу?')) {
+      fetchFooter()
+    }
+  }
+
+  const handleImageChange = (file: File) => {
+    const imageUrl = URL.createObjectURL(file)
+    setData({
+      ...data,
+      logoImage: { type: 'upload', value: imageUrl },
+      logoFile: file
+    })
+    console.log('📷 Image file selected:', file.name)
+  }
+
+  useEffect(() => {
+    fetchFooter()
+  }, [])
 
   return (
     <AdminLayout title="Footer">
       <div className="max-w-4xl mx-auto">
+        {/* Success Notification */}
         {saveSuccess && (
           <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
             <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
@@ -146,13 +368,23 @@ export default function FooterPage() {
             </div>
           </div>
         )}
+
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 shadow-xl">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto"></div>
+              <p className="mt-4 text-sm text-slate-600">Уншиж байна...</p>
+            </div>
+          </div>
+        )}
         
         <PageHeader
           title="Footer удирдлага"
           description="Веб сайтын доод хэсгийн мэдээлэл"
           action={
             <SaveResetButtons 
-              onSave={saveData}
+              onSave={saveFooter}
               onReset={handleReset}
               confirmMessage="Та хадгалахдаа итгэлтэй байна уу?"
             />
@@ -160,12 +392,12 @@ export default function FooterPage() {
         />
 
         {/* Live Preview */}
-        <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200 bg-linear-to-b from-slate-100 to-slate-50">
+        <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200 bg-gradient-to-b from-slate-100 to-slate-50">
           <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between bg-white/50">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                Preview
+                Live Preview
               </span>
             </div>
           </div>
@@ -177,18 +409,11 @@ export default function FooterPage() {
                   <div>
                     <div className="flex items-center gap-3 mb-4">
                       {data.logoImage.value ? (
-                        <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                        <div className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0 bg-white/10">
                           {data.logoImage.type === 'svg' && data.logoImage.value.startsWith('<svg') ? (
                             <div
                               dangerouslySetInnerHTML={{ __html: data.logoImage.value }}
                               className="w-10 h-10 flex items-center justify-center [&_svg]:w-full [&_svg]:h-full"
-                            />
-                          ) : data.logoImage.type === 'url' && data.logoImage.value.endsWith('.svg') ? (
-                            <object
-                              data={data.logoImage.value}
-                              type="image/svg+xml"
-                              className="w-10 h-10"
-                              aria-label="Logo"
                             />
                           ) : (
                             <Image
@@ -197,6 +422,7 @@ export default function FooterPage() {
                               width={40}
                               height={40}
                               className="w-10 h-10 object-cover"
+                              unoptimized={data.logoImage.value.startsWith('blob:')}
                             />
                           )}
                         </div>
@@ -208,14 +434,14 @@ export default function FooterPage() {
                       <span className={`${data.titleSize} font-bold text-white`}>{data.logoText}</span>
                     </div>
                     <p className={`${data.textSize} leading-relaxed`} style={{ color: data.textColor }}>
-                      {data.description[lang]}
+                      {t(data.description.mn, data.description.en)}
                     </p>
                   </div>
 
                   {/* Column 2 - Contact */}
                   <div>
                     <h4 className={`${data.titleSize} font-semibold mb-4 text-white`}>
-                      {lang === 'mn' ? 'Холбоо барих' : 'Contact Us'}
+                      {t('Холбоо барих', 'Contact Us')}
                     </h4>
                     <div className={`space-y-3 ${data.textSize}`} style={{ color: data.textColor }}>
                       <div className="flex items-start gap-3">
@@ -223,7 +449,7 @@ export default function FooterPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
-                        <span>{data.address[lang]}</span>
+                        <span>{t(data.address.mn, data.address.en)}</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: data.iconColor }}>
@@ -243,13 +469,13 @@ export default function FooterPage() {
                   {/* Column 3 - Quick Links */}
                   <div>
                     <h4 className={`${data.titleSize} font-semibold mb-4 text-white`}>
-                      {lang === 'mn' ? 'Холбоосууд' : 'Quick Links'}
+                      {t('Холбоосууд', 'Quick Links')}
                     </h4>
                     <ul className={`space-y-2 ${data.textSize}`} style={{ color: data.textColor }}>
                       {data.quick_links.map((link, idx) => (
                         <li key={idx}>
                           <a href={link.url} className="hover:opacity-80 transition-opacity">
-                            {lang === 'mn' ? link.name_mn : link.name_en}
+                            {t(link.namemn, link.nameen)}
                           </a>
                         </li>
                       ))}
@@ -259,19 +485,21 @@ export default function FooterPage() {
                   {/* Column 4 - Social */}
                   <div>
                     <h4 className={`${data.titleSize} font-semibold mb-4 text-white`}>
-                      {lang === 'mn' ? 'Биднийг дагах' : 'Follow Us'}
+                      {t('Биднийг дагах', 'Follow Us')}
                     </h4>
-                    <div className="flex gap-3">
-                      {data.socials.map((social) => (
+                    <div className="flex flex-wrap gap-3">
+                      {data.socials.map((social, idx) => (
                         <a 
-                          key={social.type}
+                          key={idx}
                           href={social.url} 
-                          className="w-10 h-10 rounded-full bg-gray-800 hover:opacity-80 flex items-center justify-center transition-colors"
+                          className="w-10 h-10 rounded-full hover:opacity-80 flex items-center justify-center transition-all"
+                          style={{ backgroundColor: data.iconColor }}
                           target="_blank"
                           rel="noopener noreferrer"
+                          title={social.social}
                         >
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d={getSocialIcon(social.type)} />
+                          <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <path d={getSocialIcon(social.social)} />
                           </svg>
                         </a>
                       ))}
@@ -284,25 +512,13 @@ export default function FooterPage() {
               <div className="border-t px-8 py-4" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                   <p className={data.textSize} style={{ color: data.textColor }}>
-                    <span style={{ color: data.textColor, fontSize: `var(--${data.textSize})` }} className={`${data.textSize}`}>
-                    © {new Date().getFullYear()} {data.logoText}. {data.copyright[lang]}
-                  </span>
+                    © {new Date().getFullYear()} {data.logoText}. {t(data.copyright.mn, data.copyright.en)}
                   </p>
-                  <div className={`flex gap-6 ${data.textSize}`} style={{ color: data.textColor }}>
-                    <a href="#" className="transition-colors hover:opacity-80">
-                      {lang === 'mn' ? 'Нууцлал' : 'Privacy'}
-                    </a>
-                    <a href="#" className="transition-colors hover:opacity-80">
-                      {lang === 'mn' ? 'Үйлчилгээний нөхцөл' : 'Terms of Service'}
-                    </a>
-                  </div>
                 </div>
               </div>
             </footer>
           </div>
         </div>
-
-
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Үндсэн мэдээлэл */}
@@ -324,109 +540,49 @@ export default function FooterPage() {
                 onChange={(e) => setData({ ...data, logoText: e.target.value })}
                 placeholder="BichilGlobus"
               />
+              
+              {/* Image Upload */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-             
+                  Лого зураг
                 </label>
-                <ImageUpload
-                  value={data.logoImage.type === 'upload' ? data.logoImage.value : ''}
-                  onChange={(url) => setData({ ...data, logoImage: { type: 'upload', value: url } })}
-                  label="Лого зураг нэмэх"
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleImageChange(file)
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                />
+                {data.logoImage.value && data.logoImage.type === 'upload' && (
+                  <div className="mt-3">
+                    <Image 
+                      src={data.logoImage.value} 
+                      alt="Logo preview" 
+                      width={48}
+                      height={48}
+                      className="w-12 h-12 object-cover rounded-lg border border-slate-200"
+                      unoptimized={data.logoImage.value.startsWith('blob:')}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* SVG Input */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  SVG код
+                </label>
+                <textarea
+                  value={data.logoImage.type === 'svg' ? data.logoImage.value : ''}
+                  onChange={(e) => setData({ ...data, logoImage: { type: 'svg', value: e.target.value } })}
+                  rows={5}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm font-mono resize-none"
+                  placeholder={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\n  <circle cx="50" cy="50" r="40" fill="blue"/>\n</svg>'}
                 />
               </div>
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.658 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                  URL оруулах
-                </label>
-                <div className="relative group">
-                  <input
-                    type="url"
-                    value={data.logoImage.type === 'url' ? data.logoImage.value : ''}
-                    onChange={(e) => setData({ ...data, logoImage: { type: 'url', value: e.target.value } })}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all placeholder:text-slate-400 hover:border-teal-300"
-                    placeholder="https://example.com/logo.svg"
-                  />
-                  {data.logoImage.type === 'url' && data.logoImage.value && (
-                    <button
-                      onClick={() => setData({ ...data, logoImage: { type: 'url', value: '' } })}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
-                      title="Цэвэрлэх"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
-                  <svg className="w-3.5 h-3.5 shrink-0 mt-0.5 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
-                  <span>JPG, PNG, SVG форматыг дэмжинэ. Жишээ: https://cdn.example.com/logo.svg</span>
-                </p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-teal-600" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/>
-                  </svg>
-                  SVG код оруулах
-                </label>
-                <div className="relative group">
-                  <textarea
-                    value={data.logoImage.type === 'svg' ? data.logoImage.value : ''}
-                    onChange={(e) => setData({ ...data, logoImage: { type: 'svg', value: e.target.value } })}
-                    rows={5}
-                    className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm font-mono resize-none transition-all placeholder:text-slate-400 hover:border-teal-300"
-                    placeholder={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">\n  <circle cx="50" cy="50" r="40" fill="blue"/>\n</svg>'}
-                  />
-                  {data.logoImage.type === 'svg' && data.logoImage.value && (
-                    <button
-                      onClick={() => setData({ ...data, logoImage: { type: 'svg', value: '' } })}
-                      className="absolute right-3 top-3 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
-                      title="Цэвэрлэх"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
-                  <svg className="w-3.5 h-3.5 shrink-0 mt-0.5 text-teal-600" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 9.5c0 .83-.67 1.5-1.5 1.5S11 13.33 11 12.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5z"/></svg>
-                  <span>SVG кодыг Figma, Illustrator эсвэл текст редактороос хуулаж оруулна</span>
-                </p>
-              </div>
-              {data.logoImage.value && (
-                <div className="rounded-lg border border-slate-300 p-3 bg-slate-50">
-                  <div className="text-xs text-slate-600 mb-2">Лого урьдчилан харах:</div>
-                  <div className="flex items-center justify-center bg-white rounded p-4 border border-slate-200">
-                    {data.logoImage.type === 'svg' && data.logoImage.value.startsWith('<svg') ? (
-                      <div
-                        dangerouslySetInnerHTML={{ __html: data.logoImage.value }}
-                        className="h-12 w-12 flex items-center justify-center"
-                      />
-                    ) : data.logoImage.type === 'url' && data.logoImage.value.endsWith('.svg') ? (
-                      <object
-                        data={data.logoImage.value}
-                        type="image/svg+xml"
-                        className="h-12 w-12"
-                        aria-label="Logo SVG"
-                      />
-                    ) : (
-                      <Image
-                        src={data.logoImage.value}
-                        alt="Logo preview"
-                        width={48}
-                        height={48}
-                        className="h-12 w-12 object-contain"
-                      />
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-500 mt-2 break-all">{data.logoImage.value.substring(0, 100)}{data.logoImage.value.length > 100 ? '...' : ''}</div>
-                </div>
-              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Тайлбар (Монгол)
@@ -438,8 +594,7 @@ export default function FooterPage() {
                     description: { ...data.description, mn: e.target.value }
                   })}
                   rows={4}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm text-slate-700"
-                  placeholder="Компанийн тухай богино тайлбар..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                 />
               </div>
               <div>
@@ -453,8 +608,7 @@ export default function FooterPage() {
                     description: { ...data.description, en: e.target.value }
                   })}
                   rows={4}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm text-slate-700"
-                  placeholder="Brief company description..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                 />
               </div>
             </div>
@@ -473,36 +627,24 @@ export default function FooterPage() {
               </h3>
             </div>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Хаяг (Монгол)
-                </label>
-                <input
-                  type="text"
-                  value={data.address.mn}
-                  onChange={(e) => setData({ 
-                    ...data, 
-                    address: { ...data.address, mn: e.target.value }
-                  })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                  placeholder="Улаанбаатар хот, ..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Address (English)
-                </label>
-                <input
-                  type="text"
-                  value={data.address.en}
-                  onChange={(e) => setData({ 
-                    ...data, 
-                    address: { ...data.address, en: e.target.value }
-                  })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                  placeholder="Ulaanbaatar City, ..."
-                />
-              </div>
+              <Input
+                label="Хаяг (Монгол)"
+                value={data.address.mn}
+                onChange={(e) => setData({ 
+                  ...data, 
+                  address: { ...data.address, mn: e.target.value }
+                })}
+                placeholder="Улаанбаатар хот"
+              />
+              <Input
+                label="Address (English)"
+                value={data.address.en}
+                onChange={(e) => setData({ 
+                  ...data, 
+                  address: { ...data.address, en: e.target.value }
+                })}
+                placeholder="Ulaanbaatar City"
+              />
               <Input
                 label="И-мэйл"
                 type="email"
@@ -530,201 +672,99 @@ export default function FooterPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Нийгмийн сүлжээ</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{data.socials.length} / 7 холбоос</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{data.socials.length} холбоос</p>
                 </div>
-              </div>
-              <div className="px-3 py-1 bg-teal-100 text-teal-700 rounded-full text-xs font-semibold">
-                {7 - data.socials.length} боломжтой
               </div>
             </div>
 
-            {/* Socials List - Enhanced */}
-            {data.socials.length === 0 ? (
-              <div className="mb-6">
-                <div className="text-center py-12 bg-linear-to-b from-slate-50 to-slate-100 rounded-xl border border-dashed border-slate-300">
-                  <div className="mb-3 flex justify-center">
-                    <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center">
-                      <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </div>
-                  </div>
-                  <p className="text-sm font-medium text-slate-600 mb-1">Нийгмийн сүлжээний холбоос байхгүй</p>
-                  <p className="text-xs text-slate-500">Доор нэмэх товчлуур дарж эхлээрэй</p>
-                </div>
-              </div>
-            ) : (
+            {/* Socials List */}
+            {data.socials.length > 0 && (
               <div className="mb-6 space-y-2.5">
                 {data.socials.map((social, index) => (
                   <div 
                     key={index} 
-                    className="group flex items-center gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-teal-300 hover:bg-teal-50/30 transition-all duration-200"
+                    className="group flex items-center gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-teal-300 hover:bg-teal-50/30 transition-all"
                   >
-                    {/* Drag Handle */}
-                    <div className="shrink-0 flex flex-col gap-0.5 cursor-grab active:cursor-grabbing text-slate-300 group-hover:text-slate-400">
-                      {[...Array(3)].map((_, i) => (
-                        <div key={i} className="w-1 h-1 rounded-full bg-current" />
-                      ))}
-                    </div>
-
-                    {/* Icon */}
                     <div className="shrink-0 w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center group-hover:bg-teal-100 transition-colors">
                       <svg className="w-5 h-5 text-slate-600 group-hover:text-teal-600" fill="currentColor" viewBox="0 0 24 24">
-                        <path d={getSocialIcon(social.type)} />
+                        <path d={getSocialIcon(social.social)} />
                       </svg>
                     </div>
 
-                    {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-900">{social.type.charAt(0).toUpperCase() + social.type.slice(1)}</p>
-                      <p className="text-xs text-slate-500 truncate">{social.url || 'URL байхгүй'}</p>
+                      <p className="text-sm font-semibold text-slate-900 capitalize">{social.social}</p>
+                      <p className="text-xs text-slate-500 truncate">{social.url}</p>
                     </div>
 
-                    {/* Actions */}
-                    <div className="shrink-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {/* Edit Button */}
-                      <button
-                        onClick={() => {
-                          const newUrl = prompt(
-                            `${social.type.charAt(0).toUpperCase() + social.type.slice(1)} холбоос оруулах\n\nЖишээ:\nFacebook: https://facebook.com/yourpage\nInstagram: https://instagram.com/yourprofile`,
-                            social.url
-                          )
-                          if (newUrl !== null) {
-                            if (newUrl.trim() === '') {
-                              alert(' URL хоосон байж болохгүй')
-                              return
-                            }
-                            if (!newUrl.startsWith('http://') && !newUrl.startsWith('https://')) {
-                              const shouldAdd = confirm(' URL https:// эсвэл http:// үгүүтэй байна.\n\n✓ https:// нэмэх үү?')
-                              if (shouldAdd) {
-                                const fixedUrl = 'https://' + newUrl
-                                const newSocials = [...data.socials]
-                                newSocials[index].url = fixedUrl
-                                setData({ ...data, socials: newSocials })
-                              }
-                              return
-                            }
-                            const newSocials = [...data.socials]
-                            newSocials[index].url = newUrl
-                            setData({ ...data, socials: newSocials })
-                          }
-                        }}
-                        className="p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors hover:shadow-sm"
-                        title="Засах"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
+                    {/* Edit Button */}
+                    <button
+                      onClick={() => {
+                        const newUrl = prompt(
+                          `${social.social.charAt(0).toUpperCase() + social.social.slice(1)} холбоос засах:`,
+                          social.url
+                        )
+                        if (newUrl !== null && newUrl.trim()) {
+                          const updatedSocials = [...data.socials]
+                          updatedSocials[index] = { ...updatedSocials[index], url: newUrl.trim() }
+                          setData({ ...data, socials: updatedSocials })
+                          console.log('✏️ Social updated:', updatedSocials[index])
+                        }
+                      }}
+                      className="p-2 text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
+                      title="Засах"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
 
-                      {/* Move Up */}
-                      {index > 0 && (
-                        <button
-                          onClick={() => {
-                            const newSocials: SocialLink[] = JSON.parse(JSON.stringify(data.socials))
-                            const temp = newSocials[index]
-                            newSocials[index] = newSocials[index - 1]
-                            newSocials[index - 1] = temp
-                            setData({ ...data, socials: newSocials })
-                          }}
-                          className="p-2 text-slate-600 hover:bg-amber-50 hover:text-amber-600 rounded-lg transition-colors"
-                          title="Дээшлүүлэх"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5m0 0l-7 7m7-7l7 7" />
-                          </svg>
-                        </button>
-                      )}
-
-                      {/* Move Down */}
-                      {index < data.socials.length - 1 && (
-                        <button
-                          onClick={() => {
-                            const newSocials: SocialLink[] = JSON.parse(JSON.stringify(data.socials))
-                            const temp = newSocials[index]
-                            newSocials[index] = newSocials[index + 1]
-                            newSocials[index + 1] = temp
-                            setData({ ...data, socials: newSocials })
-                          }}
-                          className="p-2 text-slate-600 hover:bg-amber-50 hover:text-amber-600 rounded-lg transition-colors"
-                          title="Доошлуулах"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m0 0l-7-7m7 7l7-7" />
-                          </svg>
-                        </button>
-                      )}
-
-
-
-                      {/* Delete Button */}
-                      <button
-                        onClick={() => {
-                          const isConfirmed = confirm(
-                            `❌ ${social.type.charAt(0).toUpperCase() + social.type.slice(1)} устгах уу?\n\n${social.url}\n\nЭнэ үйлдэлийг буцаах боломжгүй`
-                          )
-                          if (isConfirmed) {
-                            setData({
-                              ...data,
-                              socials: data.socials.filter((_, i) => i !== index)
-                            })
-                          }
-                        }}
-                        className="p-2 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors hover:shadow-sm"
-                        title="Устгах"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
+                    {/* Delete Button */}
+                    <button
+                      onClick={() => {
+                        if (confirm(`${social.social} устгах уу?`)) {
+                          const updatedSocials = data.socials.filter((_, i) => i !== index)
+                          setData({ ...data, socials: updatedSocials })
+                          console.log('🗑️ Social deleted, remaining:', updatedSocials.length)
+                        }
+                      }}
+                      className="p-2 text-slate-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
+                      title="Устгах"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Add New Social - Quick Card */}
-            {data.socials.length < 7 && (
-              <div className="mb-6 p-5 bg-linear-to-r from-teal-50 to-emerald-50 rounded-xl border border-teal-300 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-6 h-6 bg-teal-500 rounded-full flex items-center justify-center text-white text-sm font-bold shadow-lg">
-                    +
-                  </div>
-                  <h4 className="text-sm font-semibold text-slate-900">Нийгмийн сүлжээ нэмэх</h4>
-                  <span className="ml-auto text-xs text-teal-600 font-medium bg-teal-100 px-2 py-1 rounded-full">{6 - data.socials.length} үлдсэн</span>
-                </div>
-                <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
+            {/* Add New Social */}
+            {data.socials.length < 6 && (
+              <div>
+                <p className="text-sm text-slate-600 mb-3">
+                  {data.socials.length === 0 ? 'Нийгмийн сүлжээ нэмэх:' : 'Нэмэлт сүлжээ нэмэх:'}
+                </p>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
                   {(['facebook', 'instagram', 'twitter', 'linkedin', 'youtube', 'telegram'] as const).map(type => {
-                    const isAdded = data.socials.some(s => s.type === type)
+                    const isAdded = data.socials.some(s => s.social === type)
                     return (
                       <button
                         key={type}
                         onClick={() => {
                           if (!isAdded) {
-                            const exampleUrls: Record<typeof type, string> = {
-                              facebook: 'https://facebook.com/yourpage',
-                              instagram: 'https://instagram.com/yourprofile',
-                              twitter: 'https://twitter.com/yourprofile',
-                              linkedin: 'https://linkedin.com/company/yourcompany',
-                              youtube: 'https://youtube.com/c/yourchannelname',
-                              telegram: 'https://t.me/yourchannel'
-                            }
                             const url = prompt(
-                              `${type.charAt(0).toUpperCase() + type.slice(1)} URL оруулах\n\nЖишээ: ${exampleUrls[type]}`
+                              `${type.charAt(0).toUpperCase() + type.slice(1)} холбоос оруулах:\n\nЖишээ: https://${type}.com/yourcompany`
                             )
-                            if (url) {
-                              if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                                const fixedUrl = 'https://' + url
-                                setData({
-                                  ...data,
-                                  socials: [...data.socials, { type, url: fixedUrl }]
-                                })
-                              } else {
-                                setData({
-                                  ...data,
-                                  socials: [...data.socials, { type, url }]
-                                })
+                            if (url && url.trim()) {
+                              const newSocial: SocialLink = { 
+                                social: type, 
+                                url: url.trim(),
+                                index: data.socials.length + 1
                               }
+                              const updatedSocials = [...data.socials, newSocial]
+                              setData({ ...data, socials: updatedSocials })
+                              console.log('➕ Social added:', newSocial)
                             }
                           }
                         }}
@@ -732,190 +772,35 @@ export default function FooterPage() {
                         className={`p-3 rounded-lg transition-all flex flex-col items-center gap-1.5 ${
                           isAdded
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50'
-                            : 'bg-white hover:bg-teal-100 text-slate-600 hover:text-teal-700 border border-slate-200 hover:border-teal-300 shadow-sm hover:shadow-md'
+                            : 'bg-white hover:bg-teal-100 text-slate-600 hover:text-teal-700 border border-slate-200 hover:border-teal-300'
                         }`}
-                        title={isAdded ? 'Аль хэдийн нэмсэн' : `${type} нэмэх`}
+                        title={isAdded ? 'Нэмсэн байна' : `${type} нэмэх`}
                       >
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                           <path d={getSocialIcon(type)} />
                         </svg>
-                        <span className="text-xs font-medium truncate">{type}</span>
+                        <span className="text-xs font-medium capitalize">{type}</span>
                       </button>
                     )
                   })}
                 </div>
               </div>
             )}
-
-            {/* Info Box */}
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex gap-2">
-                <svg className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="text-xs text-blue-700">
-                  <p className="font-semibold mb-1">Заавар:</p>
-                  <ul className="space-y-0.5 ml-2">
-                    <li>• Иконыг дээр дарж URL шууд оруулна</li>
-                    <li>• Дээшлүүлэх/доошлуулах товчоор дараалал өөрчилнө</li>
-                    <li>• Устгахаас өмнө баталгаа авна</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Өнгө болон харагдах байдал */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-slate-900">
-                Өнгө & Үсэг
-              </h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Арын өнгө
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={data.bgColor}
-                    onChange={(e) => setData({ ...data, bgColor: e.target.value })}
-                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={data.bgColor}
-                    onChange={(e) => setData({ ...data, bgColor: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm font-mono"
-                    placeholder="#111827"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Текстийн өнгө
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={data.textColor}
-                    onChange={(e) => setData({ ...data, textColor: e.target.value })}
-                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={data.textColor}
-                    onChange={(e) => setData({ ...data, textColor: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm font-mono"
-                    placeholder="#9ca3af"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Онцлох өнгө
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={data.accentColor}
-                    onChange={(e) => setData({ ...data, accentColor: e.target.value })}
-                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={data.accentColor}
-                    onChange={(e) => setData({ ...data, accentColor: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm font-mono"
-                    placeholder="#14b8a6"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Нийгмийн сүлжээ иконы өнгө
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="color"
-                    value={data.iconColor}
-                    onChange={(e) => setData({ ...data, iconColor: e.target.value })}
-                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={data.iconColor}
-                    onChange={(e) => setData({ ...data, iconColor: e.target.value })}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm font-mono"
-                    placeholder="#14b8a6"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Гарчгийн хэмжээ
-                </label>
-                <select
-                  value={data.titleSize}
-                  onChange={(e) => setData({ ...data, titleSize: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
-                >
-                  <option value="text-sm">Small</option>
-                  <option value="text-base">Base</option>
-                  <option value="text-lg">Large</option>
-                  <option value="text-xl">XL</option>
-                  <option value="text-2xl">2XL</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Текстийн хэмжээ
-                </label>
-                <select
-                  value={data.textSize}
-                  onChange={(e) => setData({ ...data, textSize: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
-                >
-                  <option value="text-xs">XSmall</option>
-                  <option value="text-sm">Small</option>
-                  <option value="text-base">Base</option>
-                  <option value="text-lg">Large</option>
-                </select>
-              </div>
-            </div>
           </div>
 
           {/* Quick Links */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 lg:col-span-2">
             <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.658 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">Холбоосууд</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{data.quick_links.length} холбоос</p>
-                </div>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Холбоосууд (Quick Links)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{data.quick_links.length} холбоос</p>
               </div>
               <button
-                onClick={() => setData({
-                  ...data,
-                  quick_links: [...data.quick_links, { name_mn: '', name_en: '', url: '' }]
-                })}
+                onClick={() => {
+                  const newLink: QuickLink = { namemn: '', nameen: '', url: '' }
+                  setData({ ...data, quick_links: [...data.quick_links, newLink] })
+                  console.log('➕ New quick link form added')
+                }}
                 className="px-3 py-1.5 bg-teal-100 text-teal-700 rounded-lg text-sm font-semibold hover:bg-teal-200 transition-colors flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -925,154 +810,174 @@ export default function FooterPage() {
               </button>
             </div>
 
-            <div className="space-y-3">
-              {data.quick_links.map((link, idx) => (
-                <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200 hover:border-teal-300 transition-colors">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Нэр (Монгол)</label>
+            {data.quick_links.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                <svg className="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                <p className="text-sm">Холбоос нэмэгдээгүй байна</p>
+                <p className="text-xs mt-1">Дээрх "Нэмэх" товчийг дарж эхлээрэй</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {data.quick_links.map((link, idx) => (
+                  <div key={idx} className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
                       <input
                         type="text"
-                        value={link.name_mn}
+                        value={link.namemn}
                         onChange={(e) => {
                           const newLinks = [...data.quick_links]
-                          newLinks[idx].name_mn = e.target.value
+                          newLinks[idx] = { ...newLinks[idx], namemn: e.target.value }
                           setData({ ...data, quick_links: newLinks })
                         }}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
-                        placeholder="Нэр"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                        placeholder="Нэр (Монгол)"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">Name (English)</label>
                       <input
                         type="text"
-                        value={link.name_en}
+                        value={link.nameen}
                         onChange={(e) => {
                           const newLinks = [...data.quick_links]
-                          newLinks[idx].name_en = e.target.value
+                          newLinks[idx] = { ...newLinks[idx], nameen: e.target.value }
                           setData({ ...data, quick_links: newLinks })
                         }}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
-                        placeholder="Name"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                        placeholder="Name (English)"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-600 mb-1">URL</label>
                       <input
                         type="text"
                         value={link.url}
                         onChange={(e) => {
                           const newLinks = [...data.quick_links]
-                          newLinks[idx].url = e.target.value
+                          newLinks[idx] = { ...newLinks[idx], url: e.target.value }
                           setData({ ...data, quick_links: newLinks })
                         }}
-                        className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                         placeholder="/about"
                       />
                     </div>
-                  </div>
-                  <div className="flex justify-end">
                     <button
-                      onClick={() => setData({
-                        ...data,
-                        quick_links: data.quick_links.filter((_, i) => i !== idx)
-                      })}
-                      className="px-3 py-1.5 text-red-600 hover:bg-red-50 rounded text-sm font-medium transition-colors"
+                      onClick={() => {
+                        if (confirm(`"${link.namemn || link.nameen || 'Энэ холбоос'}" устгах уу?`)) {
+                          const updatedLinks = data.quick_links.filter((_, i) => i !== idx)
+                          setData({ ...data, quick_links: updatedLinks })
+                          console.log('🗑️ Quick link deleted, remaining:', updatedLinks.length)
+                        }
+                      }}
+                      className="px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
                     >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
                       Устгах
                     </button>
                   </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Өнгө */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Өнгө & Үсэг</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Арын өнгө</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={data.bgColor}
+                    onChange={(e) => setData({ ...data, bgColor: e.target.value })}
+                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={data.bgColor}
+                    onChange={(e) => setData({ ...data, bgColor: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  />
                 </div>
-              ))}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Текстийн өнгө</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={data.textColor}
+                    onChange={(e) => setData({ ...data, textColor: e.target.value })}
+                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={data.textColor}
+                    onChange={(e) => setData({ ...data, textColor: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Онцлох өнгө</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={data.accentColor}
+                    onChange={(e) => setData({ ...data, accentColor: e.target.value })}
+                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={data.accentColor}
+                    onChange={(e) => setData({ ...data, accentColor: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Иконы өнгө</label>
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={data.iconColor}
+                    onChange={(e) => setData({ ...data, iconColor: e.target.value })}
+                    className="w-12 h-10 rounded border border-slate-300 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={data.iconColor}
+                    onChange={(e) => setData({ ...data, iconColor: e.target.value })}
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Copyright */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-slate-900">Copyright</h3>
-            </div>
+            <h3 className="text-lg font-semibold text-slate-900 mb-4">Copyright</h3>
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Copyright текст (Монгол)
-                </label>
-                <input
-                  type="text"
-                  value={data.copyright.mn}
-                  onChange={(e) => setData({ 
-                    ...data, 
-                    copyright: { ...data.copyright, mn: e.target.value }
-                  })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                  placeholder="Бүх эрх хуулиар хамгаалагдсан."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Copyright Text (English)
-                </label>
-                <input
-                  type="text"
-                  value={data.copyright.en}
-                  onChange={(e) => setData({ 
-                    ...data, 
-                    copyright: { ...data.copyright, en: e.target.value }
-                  })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                  placeholder="All rights reserved."
-                />
-              </div>
-            </div>
-            <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <p className="text-xs text-slate-500 mb-2">
-                 {lang === 'mn' 
-                  ? `Жилийн дугаар автоматаар харагдана: © ${new Date().getFullYear()}` 
-                  : `Year is automatically displayed: © ${new Date().getFullYear()}`
-                }
-              </p>
-              <p className="text-xs text-slate-500">
-                {lang === 'mn'
-                  ? ' Гесэн текстийн өнгө болон хэмжээ сонголтуудыг ашиглана'
-                  : ' Uses Text Color and Text Size from styling options'
-                }
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Helper Section */}
-        <div className="mt-6 bg-slate-50 rounded-xl p-4 border border-slate-200">
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 w-8 h-8 bg-teal-100 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-slate-900 mb-1">
-                {lang === 'mn' ? 'Хэрэглэгчийн заавар' : 'User Guide'}
-              </h4>
-              <ul className="text-sm text-slate-600 space-y-1">
-                <li>• {lang === 'mn' 
-                  ? 'Footer нь веб сайтын бүх хуудсанд харагдана' 
-                  : 'Footer is displayed on all website pages'}
-                </li>
-                <li>• {lang === 'mn' 
-                  ? 'Нийгмийн сүлжээний холбоос бүрэн URL хэлбэрээр оруулна' 
-                  : 'Enter social media links in full URL format'}
-                </li>
-                <li>• {lang === 'mn' 
-                  ? 'Лого текст болон тайлбар нь брэнд identity-д ашиглагдана' 
-                  : 'Logo text and description are used in brand identity'}
-                </li>
-              </ul>
+              <Input
+                label="Copyright (МН)"
+                value={data.copyright.mn}
+                onChange={(e) => setData({ 
+                  ...data, 
+                  copyright: { ...data.copyright, mn: e.target.value }
+                })}
+                placeholder="Бүх эрх хуулиар хамгаалагдсан."
+              />
+              <Input
+                label="Copyright (EN)"
+                value={data.copyright.en}
+                onChange={(e) => setData({ 
+                  ...data, 
+                  copyright: { ...data.copyright, en: e.target.value }
+                })}
+                placeholder="All rights reserved."
+              />
             </div>
           </div>
         </div>

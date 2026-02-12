@@ -43,7 +43,7 @@ const CheckIcon = ({ color = 'text-teal-500' }: { color?: string }) => (
 export default function DynamicServicePage() {
   const params    = useParams()
   const { language, t } = useLanguage()
-  const serviceId = params?.serviceId as string
+  const serviceId = params?.serviceName as string
 
   const [serviceData,   setServiceData]   = useState<ApiServiceData | null>(null)
   const [loading,       setLoading]       = useState(true)
@@ -88,7 +88,6 @@ export default function DynamicServicePage() {
     )
   }
 
-  // ── Error ──────────────────────────────────────────────────────────────────
 
   if (error) {
     return (
@@ -104,7 +103,6 @@ export default function DynamicServicePage() {
     )
   }
 
-  // ── Not found ──────────────────────────────────────────────────────────────
 
   if (!serviceData) {
     return (
@@ -114,7 +112,6 @@ export default function DynamicServicePage() {
     )
   }
 
-  // ── Transform API → UI (same pattern as ServiceAdminPage's toUi) ───────────
 
   const title       = getSvcF(serviceData.translations, langId, 'title')
   const description = getSvcF(serviceData.translations, langId, 'description')
@@ -140,19 +137,16 @@ export default function DynamicServicePage() {
     label: getLang(cond.condition.translations, langId),
   }))
 
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900 relative overflow-hidden">
 
-      {/* Background blur blob */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-32 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-slate-200/40 blur-3xl rounded-full" />
       </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-20 md:py-24 relative z-10">
 
-        {/* ── Header ── */}
         <header className="text-center mb-10 sm:mb-16 max-w-4xl mx-auto">
           <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight mb-3 sm:mb-4 text-slate-900">
             {title || t('Үйлчилгээ', 'Service')}
@@ -164,7 +158,6 @@ export default function DynamicServicePage() {
             </p>
           )}
 
-          {/* ── Cards row ── */}
           {cards.length > 0 && (
             <div className="mt-8 sm:mt-14 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto">
               {cards.map(card => (
@@ -184,12 +177,10 @@ export default function DynamicServicePage() {
           )}
         </header>
 
-        {/* ── Body card ── */}
         <div className="max-w-6xl mx-auto">
           <section className="space-y-6 sm:space-y-8">
             <div className="relative bg-white rounded-xl sm:rounded-[32px] p-5 sm:p-10 md:p-16 shadow-[0_20px_60px_rgba(0,0,0,0.08)] border border-slate-100">
 
-              {/* Documents */}
               {documents.length > 0 && (
                 <div className="mb-8 sm:mb-14">
                   <h3 className="text-base sm:text-lg font-semibold text-slate-800 mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
@@ -207,7 +198,6 @@ export default function DynamicServicePage() {
                 </div>
               )}
 
-              {/* Collaterals */}
               {collaterals.length > 0 && (
                 <div className="mb-8 sm:mb-14">
                   <h3 className="text-base sm:text-lg font-semibold text-slate-800 mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
@@ -225,7 +215,6 @@ export default function DynamicServicePage() {
                 </div>
               )}
 
-              {/* Conditions */}
               {conditions.length > 0 && (
                 <div>
                   <h3 className="text-base sm:text-lg font-semibold text-slate-800 mb-3 sm:mb-4 flex items-center gap-2 sm:gap-3">
@@ -243,7 +232,6 @@ export default function DynamicServicePage() {
                 </div>
               )}
 
-              {/* Empty state */}
               {documents.length === 0 && collaterals.length === 0 && conditions.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-sm text-slate-400 italic">
@@ -253,7 +241,6 @@ export default function DynamicServicePage() {
               )}
             </div>
 
-            {/* Footer note */}
             <div className="mt-12 sm:mt-20 text-center">
               <div className="inline-block px-4 sm:px-6 py-2 sm:py-3 rounded-full bg-slate-50 border border-slate-200">
                 <p className="text-xs sm:text-sm text-slate-500 px-2">

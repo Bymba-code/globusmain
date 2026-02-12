@@ -5,8 +5,6 @@ import "@/styles/globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import FloatingMenu from "@/components/FloatingMenu";
-import ErrorBoundary from "@/components/ErrorBoundary";
-import { ToastProvider } from "@/components/ToastContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 
 const geistSans = Geist({
@@ -34,18 +32,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}
       >
-        <ErrorBoundary>
-          <ToastProvider>
-            <LanguageProvider>
-              <Header />
-              <main className="flex-1 w-full pt-20 lg:pt-24">
-                {children}
-              </main>
-              <Footer />
-              <FloatingMenu />
-            </LanguageProvider>
-          </ToastProvider>
-        </ErrorBoundary>
+        <LanguageProvider>
+          <Header />
+          <main className="flex-1 w-full pt-20 lg:pt-24">
+            {children}
+          </main>
+          <Footer />
+          <FloatingMenu />
+        </LanguageProvider>
       </body>
     </html>
   );
