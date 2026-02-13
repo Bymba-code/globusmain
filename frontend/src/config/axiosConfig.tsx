@@ -1,9 +1,8 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api/v1';
 
 const axiosInstance: AxiosInstance = axios.create({
-  baseURL: BASE_URL,
+  baseURL: process.env.NEXT_PUBLIC_REACT_APP_API_URL,
   timeout: 10000, 
   headers: {
     'Content-Type': 'application/json',
